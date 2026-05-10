@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SnapAE"
+rootProject.name = "snapaie"
 include(":app")

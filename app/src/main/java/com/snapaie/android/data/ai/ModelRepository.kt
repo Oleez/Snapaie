@@ -1,10 +1,10 @@
-package com.snapae.android.data.ai
+package com.snapaie.android.data.ai
 
 import android.app.ActivityManager
 import android.content.Context
 import android.os.StatFs
-import com.snapae.android.data.model.ModelSetupState
-import com.snapae.android.data.model.ModelTier
+import com.snapaie.android.data.model.ModelSetupState
+import com.snapaie.android.data.model.ModelTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

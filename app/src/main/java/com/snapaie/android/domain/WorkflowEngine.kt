@@ -1,15 +1,15 @@
-package com.snapae.android.domain
+package com.snapaie.android.domain
 
 import android.content.Context
-import com.snapae.android.data.ai.LocalInferenceEngine
-import com.snapae.android.data.model.BookScanDraft
-import com.snapae.android.data.model.FillerItem
-import com.snapae.android.data.model.KnowledgeMode
-import com.snapae.android.data.model.KnowledgeResult
-import com.snapae.android.data.model.ModelTier
-import com.snapae.android.data.model.PhaseUpdate
-import com.snapae.android.data.model.ScanPhase
-import com.snapae.android.data.model.VocabularyItem
+import com.snapaie.android.data.ai.LocalInferenceEngine
+import com.snapaie.android.data.model.BookScanDraft
+import com.snapaie.android.data.model.FillerItem
+import com.snapaie.android.data.model.KnowledgeMode
+import com.snapaie.android.data.model.KnowledgeResult
+import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.model.PhaseUpdate
+import com.snapaie.android.data.model.ScanPhase
+import com.snapaie.android.data.model.VocabularyItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

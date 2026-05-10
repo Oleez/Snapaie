@@ -1,4 +1,4 @@
-package com.snapae.android.data.ocr
+package com.snapaie.android.data.ocr
 
 import android.content.Context
 import android.net.Uri

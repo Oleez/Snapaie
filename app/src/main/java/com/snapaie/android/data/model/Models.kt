@@ -1,4 +1,4 @@
-package com.snapae.android.data.model
+package com.snapaie.android.data.model
 
 import kotlinx.serialization.Serializable
 
@@ -36,7 +36,7 @@ data class KnowledgeResult(
     val keyQuotesToKeep: List<String> = emptyList(),
 ) {
     fun toMarkdown(): String = buildString {
-        appendLine("# SnapAE Knowledge Scan")
+        appendLine("# snapaie Knowledge Scan")
         appendLine()
         appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
         appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")

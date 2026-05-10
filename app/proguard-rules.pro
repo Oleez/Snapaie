@@ -1,1 +1,1 @@
-# SnapAE
+# snapaie

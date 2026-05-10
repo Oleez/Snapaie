@@ -1,4 +1,4 @@
-package com.snapae.android.core.design
+package com.snapaie.android.core.design
 
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -41,7 +41,7 @@ private val Scheme: ColorScheme = darkColorScheme(
 )
 
 @Composable
-fun SnapAeTheme(content: @Composable () -> Unit) {
+fun SnapAieTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = Scheme,
         typography = SnapTypography,

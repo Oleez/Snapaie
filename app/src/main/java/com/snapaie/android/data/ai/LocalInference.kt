@@ -1,10 +1,10 @@
-package com.snapae.android.data.ai
+package com.snapaie.android.data.ai
 
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.snapae.android.data.model.ModelTier
+import com.snapaie.android.data.model.ModelTier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow

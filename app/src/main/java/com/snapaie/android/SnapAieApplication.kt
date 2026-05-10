@@ -1,15 +1,15 @@
-package com.snapae.android
+package com.snapaie.android
 
 import android.app.Application
 import androidx.room.Room
-import com.snapae.android.data.ai.LiteRtLocalInferenceEngine
-import com.snapae.android.data.ai.ModelRepository
-import com.snapae.android.data.local.SnapAeDatabase
-import com.snapae.android.data.ocr.OcrProcessor
-import com.snapae.android.domain.WorkflowEngine
+import com.snapaie.android.data.ai.LiteRtLocalInferenceEngine
+import com.snapaie.android.data.ai.ModelRepository
+import com.snapaie.android.data.local.SnapAieDatabase
+import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.domain.WorkflowEngine
 import okhttp3.OkHttpClient
 
-class SnapAeApplication : Application() {
+class SnapAieApplication : Application() {
     lateinit var container: AppContainer
         private set
 
@@ -17,8 +17,8 @@ class SnapAeApplication : Application() {
         super.onCreate()
         val database = Room.databaseBuilder(
             applicationContext,
-            SnapAeDatabase::class.java,
-            "snapae.db",
+            SnapAieDatabase::class.java,
+            "snapaie.db",
         ).build()
 
         val modelRepository = ModelRepository(
@@ -43,7 +43,7 @@ class SnapAeApplication : Application() {
 }
 
 data class AppContainer(
-    val database: SnapAeDatabase,
+    val database: SnapAieDatabase,
     val modelRepository: ModelRepository,
     val ocrProcessor: OcrProcessor,
     val workflowEngine: WorkflowEngine,

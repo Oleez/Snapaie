@@ -1,4 +1,4 @@
-package com.snapae.android.data.local
+package com.snapaie.android.data.local
 
 import androidx.room.Dao
 import androidx.room.Database
@@ -7,16 +7,16 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
-import com.snapae.android.data.model.BookScanDraft
-import com.snapae.android.data.model.KnowledgeMode
-import com.snapae.android.data.model.KnowledgeResult
+import com.snapaie.android.data.model.BookScanDraft
+import com.snapaie.android.data.model.KnowledgeMode
+import com.snapaie.android.data.model.KnowledgeResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Database(entities = [KnowledgeScanEntity::class], version = 1)
-abstract class SnapAeDatabase : RoomDatabase() {
+abstract class SnapAieDatabase : RoomDatabase() {
     abstract fun knowledgeScanDao(): KnowledgeScanDao
 }
 

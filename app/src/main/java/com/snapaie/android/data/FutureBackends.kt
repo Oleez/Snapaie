@@ -1,4 +1,4 @@
-package com.snapae.android.data
+package com.snapaie.android.data
 
 interface AuthGateway {
     suspend fun currentUserId(): String?

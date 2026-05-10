@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.snapae.android"
+    namespace = "com.snapaie.android"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.snapae.android"
+        applicationId = "com.snapaie.android"
         minSdk = 31
         targetSdk = 35
         versionCode = 1

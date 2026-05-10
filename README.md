@@ -1,8 +1,8 @@
-# SnapAE
+# snapaie
 
 **Cut the fluff. Keep the knowledge.**
 
-SnapAE is a local-first Android app for turning book pages into compressed understanding. The user snaps or imports a page, ML Kit OCR extracts the text, and local Gemma via LiteRT-LM compresses the scan into high-signal knowledge: concise meaning, core idea, author intent, filler detection, simplified explanation, smart vocabulary, and practical takeaways.
+snapaie is a local-first Android app for turning book pages into compressed understanding. The user snaps or imports a page, ML Kit OCR extracts the text, and local Gemma via LiteRT-LM compresses the scan into high-signal knowledge: concise meaning, core idea, author intent, filler detection, simplified explanation, smart vocabulary, and practical takeaways.
 
 This is not an AI explainer clone, not generic OCR, and not a chatbot. The product goal is to make users feel like they are becoming smarter faster.
 
@@ -11,7 +11,7 @@ This is not an AI explainer clone, not generic OCR, and not a chatbot. The produ
 1. Snap or import a book/page image.
 2. OCR extracts page text on device.
 3. Local AI identifies filler, repetition, low-value paragraphs, and unnecessary complexity.
-4. SnapAE outputs a sharp clarity result:
+4. snapaie outputs a sharp clarity result:
    - concise meaning
    - core idea
    - author intent
@@ -42,11 +42,11 @@ This is not an AI explainer clone, not generic OCR, and not a chatbot. The produ
 
 ## Local AI And Privacy
 
-SnapAE is designed for local OCR and local LLM inference. Book/page text should stay on device. Future backend interfaces may support auth, sync, subscriptions, or analytics, but prompts and OCR text should not be sent to a server unless that product decision is explicitly changed.
+snapaie is designed for local OCR and local LLM inference. Book/page text should stay on device. Future backend interfaces may support auth, sync, subscriptions, or analytics, but prompts and OCR text should not be sent to a server unless that product decision is explicitly changed.
 
 ## Model Licensing
 
-Gemma model files are not committed to this repository. Download or sideload only models you are licensed to use, and keep the model license visible to testers. The initial model URLs point at LiteRT Community Gemma 4 `.litertlm` files on Hugging Face. Add official SHA-256 values in `app/src/main/java/com/snapae/android/data/model/Models.kt` before production distribution.
+Gemma model files are not committed to this repository. Download or sideload only models you are licensed to use, and keep the model license visible to testers. The initial model URLs point at LiteRT Community Gemma 4 `.litertlm` files on Hugging Face. Add official SHA-256 values in `app/src/main/java/com/snapaie/android/data/model/Models.kt` before production distribution.
 
 ## Technical Notes
 
@@ -68,7 +68,7 @@ Sources:
 Open this folder in Android Studio:
 
 ```powershell
-H:\The Run\3. SnapAE
+H:\The Run\3. snapaie
 ```
 
 Then sync Gradle and run the `app` configuration. From a shell with Java and Android SDK configured:

@@ -1,4 +1,4 @@
-package com.snapae.android.core.design
+package com.snapaie.android.core.design
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

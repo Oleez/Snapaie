@@ -1,4 +1,4 @@
-package com.snapae.android.ui
+package com.snapaie.android.ui
 
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -62,13 +62,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.snapae.android.AppContainer
-import com.snapae.android.core.design.LiquidGlassSurface
-import com.snapae.android.core.design.SnapAeTheme
-import com.snapae.android.core.design.snapScreenBackground
-import com.snapae.android.data.model.KnowledgeMode
-import com.snapae.android.data.model.KnowledgeResult
-import com.snapae.android.data.model.ModelTier
+import com.snapaie.android.AppContainer
+import com.snapaie.android.core.design.LiquidGlassSurface
+import com.snapaie.android.core.design.SnapAieTheme
+import com.snapaie.android.core.design.snapScreenBackground
+import com.snapaie.android.data.model.KnowledgeMode
+import com.snapaie.android.data.model.KnowledgeResult
+import com.snapaie.android.data.model.ModelTier
 
 private enum class Route(val value: String, val label: String) {
     Scan("scan", "Scan"),
@@ -78,9 +78,9 @@ private enum class Route(val value: String, val label: String) {
 }
 
 @Composable
-fun SnapAeApp(container: AppContainer) {
-    SnapAeTheme {
-        val viewModel: SnapAeViewModel = viewModel(factory = SnapAeViewModelFactory(container))
+fun SnapAieApp(container: AppContainer) {
+    SnapAieTheme {
+        val viewModel: SnapAieViewModel = viewModel(factory = SnapAieViewModelFactory(container))
         val navController = rememberNavController()
         val backStack by navController.currentBackStackEntryAsState()
         Scaffold(
@@ -137,7 +137,7 @@ fun SnapAeApp(container: AppContainer) {
 }
 
 @Composable
-private fun ScanHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
+private fun ScanHub(viewModel: SnapAieViewModel, onRun: () -> Unit) {
     val state = viewModel.uiState.value
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -152,7 +152,7 @@ private fun ScanHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Header("SnapAE", "Cut the fluff. Keep the knowledge.")
+            Header("snapaie", "Cut the fluff. Keep the knowledge.")
         }
         item { ScanHero(isActive = state.isOcrRunning || state.isRunning) }
         item {
@@ -291,7 +291,7 @@ private fun ScanHero(isActive: Boolean) {
 }
 
 @Composable
-private fun CompressionRun(viewModel: SnapAeViewModel, onResult: () -> Unit) {
+private fun CompressionRun(viewModel: SnapAieViewModel, onResult: () -> Unit) {
     val state = viewModel.uiState.value
     LazyColumn(
         modifier = Modifier
@@ -381,7 +381,7 @@ private fun ClarityScreen(result: KnowledgeResult?) {
 }
 
 @Composable
-private fun GrowthScreen(viewModel: SnapAeViewModel) {
+private fun GrowthScreen(viewModel: SnapAieViewModel) {
     val scans by viewModel.library.collectAsStateWithLifecycle()
     val stats by viewModel.readerStats.collectAsStateWithLifecycle()
     LazyColumn(

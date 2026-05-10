@@ -1,21 +1,21 @@
-package com.snapae.android.ui
+package com.snapaie.android.ui
 
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.snapae.android.AppContainer
-import com.snapae.android.data.local.KnowledgeScan
-import com.snapae.android.data.local.knowledgeScanEntity
-import com.snapae.android.data.local.toDomain
-import com.snapae.android.data.model.BookScanDraft
-import com.snapae.android.data.model.KnowledgeMode
-import com.snapae.android.data.model.KnowledgeResult
-import com.snapae.android.data.model.ModelSetupState
-import com.snapae.android.data.model.ModelTier
-import com.snapae.android.data.model.PhaseUpdate
-import com.snapae.android.data.model.ReaderStats
-import com.snapae.android.domain.WorkflowEvent
+import com.snapaie.android.AppContainer
+import com.snapaie.android.data.local.KnowledgeScan
+import com.snapaie.android.data.local.knowledgeScanEntity
+import com.snapaie.android.data.local.toDomain
+import com.snapaie.android.data.model.BookScanDraft
+import com.snapaie.android.data.model.KnowledgeMode
+import com.snapaie.android.data.model.KnowledgeResult
+import com.snapaie.android.data.model.ModelSetupState
+import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.model.PhaseUpdate
+import com.snapaie.android.data.model.ReaderStats
+import com.snapaie.android.domain.WorkflowEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,7 +33,7 @@ data class ScanUiState(
     val ocrError: String? = null,
 )
 
-class SnapAeViewModel(
+class SnapAieViewModel(
     private val container: AppContainer,
 ) : ViewModel() {
     val modelState: StateFlow<ModelSetupState> = container.modelRepository.state
@@ -144,9 +144,9 @@ class SnapAeViewModel(
     }
 }
 
-class SnapAeViewModelFactory(private val container: AppContainer) : ViewModelProvider.Factory {
+class SnapAieViewModelFactory(private val container: AppContainer) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return SnapAeViewModel(container) as T
+        return SnapAieViewModel(container) as T
     }
 }
