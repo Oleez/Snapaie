@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.snapae.android.data.ai.LiteRtLocalInferenceEngine
 import com.snapae.android.data.ai.ModelRepository
 import com.snapae.android.data.local.SnapAeDatabase
+import com.snapae.android.data.ocr.OcrProcessor
 import com.snapae.android.domain.WorkflowEngine
 import okhttp3.OkHttpClient
 
@@ -32,6 +33,7 @@ class SnapAeApplication : Application() {
         container = AppContainer(
             database = database,
             modelRepository = modelRepository,
+            ocrProcessor = OcrProcessor(applicationContext),
             workflowEngine = WorkflowEngine(
                 context = applicationContext,
                 inferenceEngine = inferenceEngine,
@@ -43,5 +45,6 @@ class SnapAeApplication : Application() {
 data class AppContainer(
     val database: SnapAeDatabase,
     val modelRepository: ModelRepository,
+    val ocrProcessor: OcrProcessor,
     val workflowEngine: WorkflowEngine,
 )

@@ -2,99 +2,125 @@ package com.snapae.android.data.model
 
 import kotlinx.serialization.Serializable
 
-enum class AssetType(val label: String) {
-    VideoNotes("Video notes"),
-    Transcript("Transcript"),
-    ProductPitch("Product pitch"),
-    Feature("Feature"),
-    Screenshot("Screenshot"),
-    Idea("Idea"),
-    Update("Update"),
+enum class KnowledgeMode(val label: String, val description: String) {
+    Concise("Concise", "Compress aggressively and keep only essential meaning."),
+    CoreInsight("Core Insight", "Extract the main takeaway and author intent."),
+    Student("Student", "Simplify difficult concepts for exam-ready understanding."),
+    FastRead("Fast Read", "Summarize the page instantly and reduce reading time."),
+    DeepMeaning("Deep Meaning", "Explain hidden psychology, philosophy, or business insight."),
 }
 
-enum class WorkflowPhase(val label: String) {
-    Intake("Intake strategist"),
-    Audience("Audience analyst"),
-    Hook("Hook angle"),
-    Titles("Title lab"),
-    Captions("Caption writer"),
-    Repurpose("Repurposing planner"),
-    Schedule("Schedule strategist"),
-    Analytics("Analytics analyst"),
-    Ideas("Next ideas"),
-    Guardrails("Quality guardrails"),
+enum class ScanPhase(val label: String) {
+    Capture("Capture"),
+    Ocr("OCR"),
+    FillerScan("Filler scan"),
+    Compression("Compression"),
+    Insight("Core insight"),
+    Vocabulary("Vocabulary"),
+    Takeaways("Takeaways"),
+    ClarityCheck("Clarity check"),
 }
 
 @Serializable
-data class LaunchPackage(
-    val audience: String = "",
-    val strongestHookAngle: String = "",
-    val titles: List<String> = emptyList(),
-    val hooks: List<String> = emptyList(),
-    val captions: List<String> = emptyList(),
-    val hashtags: List<String> = emptyList(),
-    val thumbnailText: List<String> = emptyList(),
-    val pinnedComment: String = "",
-    val cta: String = "",
-    val repurposingBlocks: List<String> = emptyList(),
-    val scheduleSuggestion: String = "",
-    val engagementPrompts: List<String> = emptyList(),
-    val analyticsTemplateMarkdown: String = "",
-    val nextIdeas: List<String> = emptyList(),
+data class KnowledgeResult(
+    val conciseMeaning: String = "",
+    val coreIdea: String = "",
+    val authorIntent: String = "",
+    val simplifiedExplanation: String = "",
+    val actionableInsights: List<String> = emptyList(),
+    val importantVocabulary: List<VocabularyItem> = emptyList(),
+    val fillerDetected: List<FillerItem> = emptyList(),
+    val compressionScore: Int = 0,
+    val estimatedTimeSavedMinutes: Int = 0,
+    val hiddenMeaning: String = "",
+    val keyQuotesToKeep: List<String> = emptyList(),
 ) {
     fun toMarkdown(): String = buildString {
-        appendLine("# SnapAE Launch Package")
+        appendLine("# SnapAE Knowledge Scan")
         appendLine()
-        appendLine("## Audience")
-        appendLine(audience.ifBlank { "Not generated." })
+        appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
+        appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
         appendLine()
-        appendLine("## Strongest Hook Angle")
-        appendLine(strongestHookAngle.ifBlank { "Not generated." })
+        appendLine("## Concise Meaning")
+        appendLine(conciseMeaning.ifBlank { "Not generated." })
         appendLine()
-        appendList("Titles", titles)
-        appendList("Hooks", hooks)
-        appendList("Captions", captions)
-        appendList("Hashtags", hashtags)
-        appendList("Thumbnail Text", thumbnailText)
-        appendLine("## Pinned Comment")
-        appendLine(pinnedComment.ifBlank { "Not generated." })
+        appendLine("## Core Idea")
+        appendLine(coreIdea.ifBlank { "Not generated." })
         appendLine()
-        appendLine("## CTA")
-        appendLine(cta.ifBlank { "Not generated." })
+        appendLine("## Author Intent")
+        appendLine(authorIntent.ifBlank { "Not generated." })
         appendLine()
-        appendList("Repurposing Blocks", repurposingBlocks)
-        appendLine("## Schedule Suggestion")
-        appendLine(scheduleSuggestion.ifBlank { "Not generated." })
+        appendLine("## Simplified Explanation")
+        appendLine(simplifiedExplanation.ifBlank { "Not generated." })
         appendLine()
-        appendList("Engagement Prompts", engagementPrompts)
-        appendLine("## Analytics Template")
-        appendLine(analyticsTemplateMarkdown.ifBlank { "Not generated." })
+        appendList("Actionable Insights", actionableInsights)
+        appendLine("## Smart Vocabulary")
+        if (importantVocabulary.isEmpty()) {
+            appendLine("Not generated.")
+        } else {
+            importantVocabulary.forEach {
+                appendLine("- **${it.word}** (${it.pronunciation.ifBlank { "pronunciation TBD" }}): ${it.meaning} Simpler: ${it.simplerVersion}")
+            }
+        }
         appendLine()
-        appendList("Next Ideas", nextIdeas)
+        appendLine("## Filler Detected")
+        if (fillerDetected.isEmpty()) {
+            appendLine("No obvious filler detected.")
+        } else {
+            fillerDetected.forEach { appendLine("- ${it.type}: ${it.excerpt} -> ${it.reason}") }
+        }
+        appendLine()
+        appendLine("## Hidden Meaning")
+        appendLine(hiddenMeaning.ifBlank { "Not generated." })
+        appendLine()
+        appendList("Key Quotes To Keep", keyQuotesToKeep)
     }
 }
+
+@Serializable
+data class VocabularyItem(
+    val word: String,
+    val meaning: String,
+    val simplerVersion: String,
+    val pronunciation: String = "",
+)
+
+@Serializable
+data class FillerItem(
+    val excerpt: String,
+    val reason: String,
+    val type: String,
+)
 
 private fun StringBuilder.appendList(title: String, values: List<String>) {
     appendLine("## $title")
     if (values.isEmpty()) {
         appendLine("Not generated.")
     } else {
-        values.forEachIndexed { index, value -> appendLine("${index + 1}. $value") }
+        values.forEach { value -> appendLine("- $value") }
     }
     appendLine()
 }
 
-data class InputDraft(
-    val assetType: AssetType = AssetType.Transcript,
-    val title: String = "",
-    val content: String = "",
+data class BookScanDraft(
+    val mode: KnowledgeMode = KnowledgeMode.Concise,
+    val bookTitle: String = "",
+    val pageText: String = "",
     val context: String = "",
 )
 
 data class PhaseUpdate(
-    val phase: WorkflowPhase,
+    val phase: ScanPhase,
     val text: String,
     val isComplete: Boolean = false,
+)
+
+data class ReaderStats(
+    val streakDays: Int = 0,
+    val pagesProcessed: Int = 0,
+    val insightsLearned: Int = 0,
+    val minutesSaved: Int = 0,
+    val averageCompression: Int = 0,
 )
 
 data class ModelSetupState(
@@ -118,7 +144,7 @@ enum class ModelTier(
     val recommendedRamGb: Int,
 ) {
     Gemma4E2B(
-        displayName = "Gemma 4 E2B quantized",
+        displayName = "Gemma 4 E2B local",
         fileName = "gemma-4-E2B-it.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
         sha256 = "",
@@ -126,7 +152,7 @@ enum class ModelTier(
         recommendedRamGb = 6,
     ),
     Gemma4E4B(
-        displayName = "Gemma 4 E4B quantized",
+        displayName = "Gemma 4 E4B local",
         fileName = "gemma-4-E4B-it.litertlm",
         downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
         sha256 = "",

@@ -7,44 +7,45 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
-import com.snapae.android.data.model.AssetType
-import com.snapae.android.data.model.LaunchPackage
+import com.snapae.android.data.model.BookScanDraft
+import com.snapae.android.data.model.KnowledgeMode
+import com.snapae.android.data.model.KnowledgeResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-@Database(entities = [LaunchRunEntity::class], version = 1)
+@Database(entities = [KnowledgeScanEntity::class], version = 1)
 abstract class SnapAeDatabase : RoomDatabase() {
-    abstract fun launchRunDao(): LaunchRunDao
+    abstract fun knowledgeScanDao(): KnowledgeScanDao
 }
 
-@Entity(tableName = "launch_runs")
-data class LaunchRunEntity(
+@Entity(tableName = "knowledge_scans")
+data class KnowledgeScanEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val createdAtMillis: Long,
-    val assetType: String,
-    val title: String,
+    val mode: String,
+    val bookTitle: String,
     val sourcePreview: String,
-    val packageJson: String,
+    val resultJson: String,
 )
 
-data class LaunchRun(
+data class KnowledgeScan(
     val id: Long,
     val createdAtMillis: Long,
-    val assetType: AssetType,
-    val title: String,
+    val mode: KnowledgeMode,
+    val bookTitle: String,
     val sourcePreview: String,
-    val launchPackage: LaunchPackage,
+    val result: KnowledgeResult,
 )
 
 @Dao
-interface LaunchRunDao {
-    @Query("SELECT * FROM launch_runs ORDER BY createdAtMillis DESC")
-    fun observeRuns(): Flow<List<LaunchRunEntity>>
+interface KnowledgeScanDao {
+    @Query("SELECT * FROM knowledge_scans ORDER BY createdAtMillis DESC")
+    fun observeScans(): Flow<List<KnowledgeScanEntity>>
 
     @Insert
-    suspend fun insert(entity: LaunchRunEntity): Long
+    suspend fun insert(entity: KnowledgeScanEntity): Long
 }
 
 private val json = Json {
@@ -52,25 +53,23 @@ private val json = Json {
     prettyPrint = true
 }
 
-fun LaunchRunEntity.toDomain(): LaunchRun = LaunchRun(
+fun KnowledgeScanEntity.toDomain(): KnowledgeScan = KnowledgeScan(
     id = id,
     createdAtMillis = createdAtMillis,
-    assetType = runCatching { AssetType.valueOf(assetType) }.getOrDefault(AssetType.Transcript),
-    title = title,
+    mode = runCatching { KnowledgeMode.valueOf(mode) }.getOrDefault(KnowledgeMode.Concise),
+    bookTitle = bookTitle,
     sourcePreview = sourcePreview,
-    launchPackage = runCatching { json.decodeFromString<LaunchPackage>(packageJson) }
-        .getOrDefault(LaunchPackage()),
+    result = runCatching { json.decodeFromString<KnowledgeResult>(resultJson) }
+        .getOrDefault(KnowledgeResult()),
 )
 
-fun launchRunEntity(
-    assetType: AssetType,
-    title: String,
-    source: String,
-    launchPackage: LaunchPackage,
-): LaunchRunEntity = LaunchRunEntity(
+fun knowledgeScanEntity(
+    draft: BookScanDraft,
+    result: KnowledgeResult,
+): KnowledgeScanEntity = KnowledgeScanEntity(
     createdAtMillis = System.currentTimeMillis(),
-    assetType = assetType.name,
-    title = title.ifBlank { assetType.label },
-    sourcePreview = source.take(240),
-    packageJson = json.encodeToString(launchPackage),
+    mode = draft.mode.name,
+    bookTitle = draft.bookTitle.ifBlank { "Untitled scan" },
+    sourcePreview = draft.pageText.take(240),
+    resultJson = json.encodeToString(result),
 )

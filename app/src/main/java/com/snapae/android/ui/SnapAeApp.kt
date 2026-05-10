@@ -1,9 +1,14 @@
 package com.snapae.android.ui
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,23 +17,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.ImageSearch
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,10 +46,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -62,15 +66,15 @@ import com.snapae.android.AppContainer
 import com.snapae.android.core.design.LiquidGlassSurface
 import com.snapae.android.core.design.SnapAeTheme
 import com.snapae.android.core.design.snapScreenBackground
-import com.snapae.android.data.model.AssetType
-import com.snapae.android.data.model.LaunchPackage
+import com.snapae.android.data.model.KnowledgeMode
+import com.snapae.android.data.model.KnowledgeResult
 import com.snapae.android.data.model.ModelTier
 
 private enum class Route(val value: String, val label: String) {
-    Input("input", "Input"),
-    Run("run", "Run"),
-    Package("package", "Package"),
-    Library("library", "Library"),
+    Scan("scan", "Scan"),
+    Compress("compress", "Compress"),
+    Result("result", "Clarity"),
+    Library("library", "Growth"),
 }
 
 @Composable
@@ -83,7 +87,7 @@ fun SnapAeApp(container: AppContainer) {
             modifier = Modifier
                 .fillMaxSize()
                 .snapScreenBackground(),
-            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+            containerColor = Color.Transparent,
             bottomBar = {
                 NavigationBar(
                     modifier = Modifier.navigationBarsPadding(),
@@ -96,10 +100,10 @@ fun SnapAeApp(container: AppContainer) {
                             icon = {
                                 Icon(
                                     imageVector = when (route) {
-                                        Route.Input -> Icons.Default.Home
-                                        Route.Run -> Icons.Default.PlayArrow
-                                        Route.Package -> Icons.Default.AutoAwesome
-                                        Route.Library -> Icons.Default.Folder
+                                        Route.Scan -> Icons.Default.ImageSearch
+                                        Route.Compress -> Icons.Default.PlayArrow
+                                        Route.Result -> Icons.Default.AutoAwesome
+                                        Route.Library -> Icons.Default.Insights
                                     },
                                     contentDescription = route.label,
                                 )
@@ -112,32 +116,34 @@ fun SnapAeApp(container: AppContainer) {
         ) { padding ->
             NavHost(
                 navController = navController,
-                startDestination = Route.Input.value,
+                startDestination = Route.Scan.value,
                 modifier = Modifier.padding(padding),
             ) {
-                composable(Route.Input.value) {
-                    InputHub(viewModel) { navController.navigate(Route.Run.value) }
+                composable(Route.Scan.value) {
+                    ScanHub(viewModel) { navController.navigate(Route.Compress.value) }
                 }
-                composable(Route.Run.value) {
-                    OrchestratorRun(viewModel) { navController.navigate(Route.Package.value) }
+                composable(Route.Compress.value) {
+                    CompressionRun(viewModel) { navController.navigate(Route.Result.value) }
                 }
-                composable(Route.Package.value) {
-                    LaunchPackageScreen(viewModel.uiState.value.launchPackage)
+                composable(Route.Result.value) {
+                    ClarityScreen(viewModel.uiState.value.result)
                 }
                 composable(Route.Library.value) {
-                    LibraryScreen(viewModel)
+                    GrowthScreen(viewModel)
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
+private fun ScanHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
     val state = viewModel.uiState.value
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
-    var expanded by remember { mutableStateOf(false) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) viewModel.extractText(uri)
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -146,12 +152,13 @@ private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Header("SnapAE", "Local launch packages from rough source material.")
+            Header("SnapAE", "Cut the fluff. Keep the knowledge.")
         }
+        item { ScanHero(isActive = state.isOcrRunning || state.isRunning) }
         item {
             LiquidGlassSurface {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Model setup", style = MaterialTheme.typography.titleMedium)
+                    Text("Local model", style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ModelTier.entries.forEach { tier ->
                             FilterChip(
@@ -171,7 +178,7 @@ private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
                         enabled = !modelState.isDownloading && !modelState.isReady,
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null)
-                        Text(if (modelState.isReady) "Model ready" else "Download model")
+                        Text(if (modelState.isReady) "Model ready" else "Download Gemma")
                     }
                 }
             }
@@ -179,47 +186,55 @@ private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
         item {
             LiquidGlassSurface {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                        OutlinedTextField(
-                            value = state.draft.assetType.label,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Asset type") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth(),
-                        )
-                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            AssetType.entries.forEach { type ->
-                                DropdownMenuItem(
-                                    text = { Text(type.label) },
-                                    onClick = {
-                                        viewModel.updateAssetType(type)
-                                        expanded = false
-                                    },
-                                )
-                            }
+                    Text("AI mode", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        KnowledgeMode.entries.take(3).forEach { mode ->
+                            FilterChip(
+                                selected = state.draft.mode == mode,
+                                onClick = { viewModel.updateMode(mode) },
+                                label = { Text(mode.label) },
+                            )
                         }
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        KnowledgeMode.entries.drop(3).forEach { mode ->
+                            FilterChip(
+                                selected = state.draft.mode == mode,
+                                onClick = { viewModel.updateMode(mode) },
+                                label = { Text(mode.label) },
+                            )
+                        }
+                    }
+                    Text(state.draft.mode.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            LiquidGlassSurface {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { imagePicker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.ImageSearch, contentDescription = null)
+                        Text(if (state.isOcrRunning) "Reading page..." else "Snap or import book page")
+                    }
+                    state.ocrError?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
                     OutlinedTextField(
-                        value = state.draft.title,
-                        onValueChange = viewModel::updateTitle,
-                        label = { Text("Working title") },
+                        value = state.draft.bookTitle,
+                        onValueChange = viewModel::updateBookTitle,
+                        label = { Text("Book or source") },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
-                        value = state.draft.content,
-                        onValueChange = viewModel::updateContent,
-                        label = { Text("Transcript, notes, pitch, or update") },
-                        minLines = 7,
+                        value = state.draft.pageText,
+                        onValueChange = viewModel::updatePageText,
+                        label = { Text("OCR text or pasted page") },
+                        minLines = 8,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
                         value = state.draft.context,
                         onValueChange = viewModel::updateContext,
-                        label = { Text("Optional audience, platform, or launch context") },
-                        minLines = 3,
+                        label = { Text("Optional chapter, goal, or exam context") },
+                        minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Button(
@@ -227,11 +242,11 @@ private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
                             viewModel.runWorkflow()
                             onRun()
                         },
-                        enabled = state.draft.content.isNotBlank(),
+                        enabled = state.draft.pageText.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Default.AutoAwesome, contentDescription = null)
-                        Text("Generate launch package")
+                        Text("Compress into clarity")
                     }
                 }
             }
@@ -240,7 +255,43 @@ private fun InputHub(viewModel: SnapAeViewModel, onRun: () -> Unit) {
 }
 
 @Composable
-private fun OrchestratorRun(viewModel: SnapAeViewModel, onPackage: () -> Unit) {
+private fun ScanHero(isActive: Boolean) {
+    LiquidGlassSurface {
+        Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF97E7D3).copy(alpha = 0.45f), Color.Transparent),
+                        center = Offset(size.width * 0.2f, size.height * 0.3f),
+                        radius = size.width * 0.55f,
+                    ),
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFF0C36A).copy(alpha = 0.28f), Color.Transparent),
+                        center = Offset(size.width * 0.8f, size.height * 0.8f),
+                        radius = size.width * 0.5f,
+                    ),
+                )
+                val y = if (isActive) size.height * 0.42f else size.height * 0.58f
+                drawLine(
+                    color = Color(0xFF97E7D3).copy(alpha = 0.85f),
+                    start = Offset(20f, y),
+                    end = Offset(size.width - 20f, y),
+                    strokeWidth = 5f,
+                )
+            }
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.Book, contentDescription = null, modifier = Modifier.size(30.dp))
+                Text("Snap your books. Understand instantly.", style = MaterialTheme.typography.headlineSmall)
+                Text("Filler becomes signal. Pages become insight.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompressionRun(viewModel: SnapAeViewModel, onResult: () -> Unit) {
     val state = viewModel.uiState.value
     LazyColumn(
         modifier = Modifier
@@ -249,12 +300,12 @@ private fun OrchestratorRun(viewModel: SnapAeViewModel, onPackage: () -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Header("Orchestrator", "Ten local phases, one package.") }
+        item { Header("Compression", "Information is being transformed into clarity.") }
         item {
             LiquidGlassSurface {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = viewModel::runWorkflow, enabled = !state.isRunning) {
+                        Button(onClick = viewModel::runWorkflow, enabled = !state.isRunning && state.draft.pageText.isNotBlank()) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null)
                             Text("Run")
                         }
@@ -264,17 +315,14 @@ private fun OrchestratorRun(viewModel: SnapAeViewModel, onPackage: () -> Unit) {
                         }
                     }
                     state.phases.forEach { phase ->
-                        Text(
-                            text = "${phase.phase.label}: ${phase.text}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Text("${phase.phase.label}: ${phase.text}", style = MaterialTheme.typography.bodyMedium)
                     }
                     AnimatedVisibility(state.streamText.isNotBlank()) {
                         Text(state.streamText, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    AnimatedVisibility(state.launchPackage != null) {
-                        Button(onClick = onPackage, modifier = Modifier.fillMaxWidth()) {
-                            Text("Open launch package")
+                    AnimatedVisibility(state.result != null) {
+                        Button(onClick = onResult, modifier = Modifier.fillMaxWidth()) {
+                            Text("Open clarity result")
                         }
                     }
                 }
@@ -284,7 +332,7 @@ private fun OrchestratorRun(viewModel: SnapAeViewModel, onPackage: () -> Unit) {
 }
 
 @Composable
-private fun LaunchPackageScreen(launchPackage: LaunchPackage?) {
+private fun ClarityScreen(result: KnowledgeResult?) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     LazyColumn(
@@ -294,23 +342,25 @@ private fun LaunchPackageScreen(launchPackage: LaunchPackage?) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Header("Launch Package", "Copy, share, or export the finished run.") }
-        if (launchPackage == null) {
-            item { LiquidGlassSurface { Text("Generate a package from the Run tab first.") } }
+        item { Header("Clarity", "Sharp, compressed, high signal.") }
+        if (result == null) {
+            item { LiquidGlassSurface { Text("Compress a page first.") } }
         } else {
             item {
                 LiquidGlassSurface {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(onClick = { clipboard.setText(AnnotatedString(launchPackage.toMarkdown())) }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Markdown")
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Metric("${result.compressionScore}%", "compressed")
+                        Metric("${result.estimatedTimeSavedMinutes}m", "saved")
+                        IconButton(onClick = { clipboard.setText(AnnotatedString(result.toMarkdown())) }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
                         }
                         IconButton(
                             onClick = {
                                 val intent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/markdown"
-                                    putExtra(Intent.EXTRA_TEXT, launchPackage.toMarkdown())
+                                    putExtra(Intent.EXTRA_TEXT, result.toMarkdown())
                                 }
-                                context.startActivity(Intent.createChooser(intent, "Share launch package"))
+                                context.startActivity(Intent.createChooser(intent, "Share clarity result"))
                             },
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Share")
@@ -318,23 +368,22 @@ private fun LaunchPackageScreen(launchPackage: LaunchPackage?) {
                     }
                 }
             }
-            item { PackageSection("Audience", listOf(launchPackage.audience)) }
-            item { PackageSection("Strongest hook angle", listOf(launchPackage.strongestHookAngle)) }
-            item { PackageSection("Titles", launchPackage.titles) }
-            item { PackageSection("Hooks", launchPackage.hooks) }
-            item { PackageSection("Captions", launchPackage.captions) }
-            item { PackageSection("Hashtags", launchPackage.hashtags) }
-            item { PackageSection("Repurposing", launchPackage.repurposingBlocks) }
-            item { PackageSection("Schedule", listOf(launchPackage.scheduleSuggestion)) }
-            item { PackageSection("Analytics", listOf(launchPackage.analyticsTemplateMarkdown)) }
-            item { PackageSection("Next ideas", launchPackage.nextIdeas) }
+            item { ResultSection("Concise meaning", listOf(result.conciseMeaning)) }
+            item { ResultSection("Core idea", listOf(result.coreIdea)) }
+            item { ResultSection("Author intent", listOf(result.authorIntent)) }
+            item { ResultSection("Simplified explanation", listOf(result.simplifiedExplanation)) }
+            item { ResultSection("Actionable takeaways", result.actionableInsights) }
+            item { ResultSection("Hidden meaning", listOf(result.hiddenMeaning)) }
+            item { ResultSection("Smart vocabulary", result.importantVocabulary.map { "${it.word}: ${it.meaning} Simpler: ${it.simplerVersion}" }) }
+            item { ResultSection("Filler detected", result.fillerDetected.map { "${it.type}: ${it.excerpt} (${it.reason})" }) }
         }
     }
 }
 
 @Composable
-private fun LibraryScreen(viewModel: SnapAeViewModel) {
-    val runs by viewModel.library.collectAsStateWithLifecycle()
+private fun GrowthScreen(viewModel: SnapAeViewModel) {
+    val scans by viewModel.library.collectAsStateWithLifecycle()
+    val stats by viewModel.readerStats.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -342,13 +391,24 @@ private fun LibraryScreen(viewModel: SnapAeViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { Header("Library", "Offline history saved with Room.") }
-        items(runs) { run ->
+        item { Header("Growth", "Become smarter faster.") }
+        item {
+            LiquidGlassSurface {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Metric(stats.streakDays.toString(), "streak")
+                    Metric(stats.pagesProcessed.toString(), "pages")
+                    Metric("${stats.minutesSaved}m", "saved")
+                    Metric("${stats.averageCompression}%", "avg")
+                }
+            }
+        }
+        items(scans) { scan ->
             LiquidGlassSurface(modifier = Modifier.animateContentSize()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(run.title, style = MaterialTheme.typography.titleMedium)
-                    Text(run.assetType.label, color = MaterialTheme.colorScheme.secondary)
-                    Text(run.launchPackage.strongestHookAngle)
+                    Text(scan.bookTitle, style = MaterialTheme.typography.titleMedium)
+                    Text(scan.mode.label, color = MaterialTheme.colorScheme.secondary)
+                    Text("${scan.result.compressionScore}% compressed")
+                    Text(scan.result.coreIdea)
                 }
             }
         }
@@ -364,11 +424,23 @@ private fun Header(title: String, subtitle: String) {
 }
 
 @Composable
-private fun PackageSection(title: String, values: List<String>) {
+private fun Metric(value: String, label: String) {
+    Column(
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.08f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(value, style = MaterialTheme.typography.titleMedium)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ResultSection(title: String, values: List<String>) {
     LiquidGlassSurface {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            values.filter { it.isNotBlank() }.forEach { value ->
+            values.filter { it.isNotBlank() }.ifEmpty { listOf("No signal found.") }.forEach { value ->
                 Text(value, style = MaterialTheme.typography.bodyMedium)
             }
             Spacer(Modifier.height(2.dp))

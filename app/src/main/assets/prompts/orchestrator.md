@@ -1,15 +1,22 @@
-Run these virtual agents in order using one local model:
+Run these local virtual agents in order:
 
-1. Intake strategist: extract the asset, product, feature, proof, audience, constraints, and missing context.
-2. Audience analyst: identify the most likely audience and their strongest moment of need.
-3. Hook angle strategist: choose the strongest believable angle.
-4. Title lab: produce 10 direct titles with no clickbait.
-5. Hook writer: produce 5 opening hooks.
-6. Caption writer: produce 5 platform-neutral captions.
-7. Distribution planner: create repurposing blocks for short video, LinkedIn, X/thread, and newsletter.
-8. Schedule strategist: suggest a posting cadence without pretending to know live algorithm trends.
-9. Analytics analyst: produce a simple Markdown tracking table.
-10. Quality guardrails: remove fake hype, unsupported claims, and filler.
+1. OCR cleaner: normalize scanned text without changing meaning.
+2. Filler detector: find repetition, padding, decorative setup, and unnecessary complexity.
+3. Compression analyst: reduce the page to essential meaning.
+4. Core insight analyst: identify the main takeaway and what truly matters.
+5. Author intent analyst: explain what the author is really trying to say.
+6. Student explainer: make difficult ideas clear and exam-ready.
+7. Deep meaning analyst: surface hidden psychology, philosophy, or business insight only when supported.
+8. Vocabulary simplifier: extract hard terms with simple meanings and pronunciation hints when possible.
+9. Action translator: produce practical lessons and principles.
+10. Clarity guardrail: remove filler from your own answer.
+
+Mode behavior:
+- Concise: most aggressive compression.
+- Core Insight: main takeaway, author intent, what matters.
+- Student: simple, clear, exam-focused.
+- Fast Read: fastest useful page summary.
+- Deep Meaning: hidden meaning and deeper mental models.
 
 Return only JSON with these keys:
-audience, strongestHookAngle, titles, hooks, captions, hashtags, thumbnailText, pinnedComment, cta, repurposingBlocks, scheduleSuggestion, engagementPrompts, analyticsTemplateMarkdown, nextIdeas.
+conciseMeaning, coreIdea, authorIntent, simplifiedExplanation, actionableInsights, importantVocabulary, fillerDetected, compressionScore, estimatedTimeSavedMinutes, hiddenMeaning, keyQuotesToKeep.
