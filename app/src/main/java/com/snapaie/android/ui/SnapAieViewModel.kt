@@ -15,10 +15,13 @@ import com.snapaie.android.data.model.ModelSetupState
 import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ReaderStats
+import com.snapaie.android.domain.ReadingStreak
 import com.snapaie.android.domain.WorkflowEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -45,7 +48,7 @@ class SnapAieViewModel(
     val readerStats: StateFlow<ReaderStats> = library
         .map { scans ->
             ReaderStats(
-                streakDays = if (scans.isEmpty()) 0 else 1,
+                streakDays = ReadingStreak.fromScanTimestamps(scans.map { it.createdAtMillis }),
                 pagesProcessed = scans.size,
                 insightsLearned = scans.sumOf { it.result.actionableInsights.size.coerceAtLeast(1) },
                 minutesSaved = scans.sumOf { it.result.estimatedTimeSavedMinutes },
@@ -54,6 +57,12 @@ class SnapAieViewModel(
             )
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReaderStats())
+
+    fun observeScan(scanId: Long): Flow<KnowledgeScan?> =
+        container.database.knowledgeScanDao()
+            .observeScan(scanId)
+            .map { entity -> entity?.toDomain() }
+            .distinctUntilChanged()
 
     private var job: Job? = null
     var uiState = androidx.compose.runtime.mutableStateOf(ScanUiState())
@@ -134,6 +143,23 @@ class SnapAieViewModel(
                     }
                 }
             }
+        }
+    }
+
+    fun loadDraftFromScan(scan: KnowledgeScan) {
+        uiState.value = uiState.value.copy(
+            draft = BookScanDraft(
+                mode = scan.mode,
+                bookTitle = scan.bookTitle,
+                pageText = scan.sourcePreview,
+                context = "",
+            ),
+        )
+    }
+
+    fun deleteScan(scanId: Long) {
+        viewModelScope.launch {
+            container.database.knowledgeScanDao().deleteById(scanId)
         }
     }
 

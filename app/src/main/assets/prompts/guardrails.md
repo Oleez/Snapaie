@@ -15,3 +15,5 @@ Non-negotiable constraints:
 - Identify filler, repetition, unnecessary complexity, and low-value framing.
 - Prioritize concise meaning, core idea, author intent, actionable insight, simplified explanation, and smart vocabulary.
 - Output structured JSON that matches the app schema.
+- Return exactly one JSON object with the required keys. Prefer raw JSON only (no markdown prose before or after).
+- If you must wrap the payload, use a single ```json fenced block that contains only that object.

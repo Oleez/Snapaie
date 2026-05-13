@@ -1,5 +1,6 @@
 package com.snapaie.android.data.model
 
+import com.snapaie.android.BuildConfig
 import kotlinx.serialization.Serializable
 
 enum class KnowledgeMode(val label: String, val description: String) {
@@ -35,7 +36,7 @@ data class KnowledgeResult(
     val hiddenMeaning: String = "",
     val keyQuotesToKeep: List<String> = emptyList(),
 ) {
-    fun toMarkdown(): String = buildString {
+    fun toMarkdown(includeBranding: Boolean = true): String = buildString {
         appendLine("# snapaie Knowledge Scan")
         appendLine()
         appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
@@ -74,6 +75,11 @@ data class KnowledgeResult(
         appendLine(hiddenMeaning.ifBlank { "Not generated." })
         appendLine()
         appendList("Key Quotes To Keep", keyQuotesToKeep)
+        if (includeBranding) {
+            appendLine()
+            appendLine("---")
+            appendLine("*Made with snapaie — compressed from your scanned page.*")
+        }
     }
 }
 
@@ -159,4 +165,10 @@ enum class ModelTier(
         estimatedBytes = 9_600_000_000L,
         recommendedRamGb = 10,
     ),
+}
+
+/** SHA-256 from [gradle.properties] overrides enum defaults when set (release integrity). */
+fun ModelTier.effectiveSha256(): String = when (this) {
+    ModelTier.Gemma4E2B -> BuildConfig.EXPECTED_MODEL_SHA256_E2B.ifBlank { sha256 }
+    ModelTier.Gemma4E4B -> BuildConfig.EXPECTED_MODEL_SHA256_E4B.ifBlank { sha256 }
 }

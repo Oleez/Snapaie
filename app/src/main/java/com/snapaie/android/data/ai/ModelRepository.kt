@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.StatFs
 import com.snapaie.android.data.model.ModelSetupState
 import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.model.effectiveSha256
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,16 +72,29 @@ class ModelRepository(
                     }
                 }
             }
-            if (tier.sha256.isNotBlank()) {
-                require(sha256(partial).equals(tier.sha256, ignoreCase = true)) {
-                    "Checksum mismatch for ${tier.displayName}"
+            val expectedSha = tier.effectiveSha256()
+            if (expectedSha.isNotBlank()) {
+                val computed = sha256(partial)
+                require(computed.equals(expectedSha, ignoreCase = true)) {
+                    "Checksum mismatch for ${tier.displayName}. Partial file was removed."
                 }
             }
-            partial.renameTo(destination)
+            if (!partial.renameTo(destination)) {
+                partial.copyTo(destination, overwrite = true)
+                partial.delete()
+            }
             _state.value = currentState(tier)
         }.onFailure { error ->
+            if (error.message?.contains("Checksum mismatch") == true) {
+                partial.delete()
+            }
             _state.update {
-                it.copy(isDownloading = false, warning = error.message ?: "Download failed")
+                val refreshed = currentState(tier)
+                refreshed.copy(
+                    isDownloading = false,
+                    downloadedBytes = if (partial.exists()) partial.length() else refreshed.downloadedBytes,
+                    warning = "${error.message ?: "Download failed"}. Tap download again.",
+                )
             }
         }
     }

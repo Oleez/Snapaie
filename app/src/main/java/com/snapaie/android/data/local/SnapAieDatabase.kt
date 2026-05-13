@@ -44,8 +44,14 @@ interface KnowledgeScanDao {
     @Query("SELECT * FROM knowledge_scans ORDER BY createdAtMillis DESC")
     fun observeScans(): Flow<List<KnowledgeScanEntity>>
 
+    @Query("SELECT * FROM knowledge_scans WHERE id = :id")
+    fun observeScan(id: Long): Flow<KnowledgeScanEntity?>
+
     @Insert
     suspend fun insert(entity: KnowledgeScanEntity): Long
+
+    @Query("DELETE FROM knowledge_scans WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }
 
 private val json = Json {

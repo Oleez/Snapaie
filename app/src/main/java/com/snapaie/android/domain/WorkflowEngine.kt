@@ -10,16 +10,19 @@ import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.data.model.VocabularyItem
+import com.snapaie.android.data.ai.ModelRepository
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 class WorkflowEngine(
     private val context: Context,
     private val inferenceEngine: LocalInferenceEngine,
+    private val modelRepository: ModelRepository,
 ) {
     private val parser = StructuredOutputParser()
 
@@ -41,8 +44,28 @@ class WorkflowEngine(
             delay(120)
         }
 
-        inferenceEngine.stream(prompt, tier).collect { token ->
-            if (token.isNotBlank()) emit(WorkflowEvent.Token(token))
+        val modelMissing = !modelRepository.modelFile(tier).exists()
+        if (modelMissing) {
+            phases.drop(3).forEach { (phase, text) ->
+                emit(WorkflowEvent.Phase(PhaseUpdate(phase, text, isComplete = true)))
+                delay(90)
+            }
+            emit(WorkflowEvent.Result(parser.heuristicOnly(draft)))
+            return@flow
+        }
+
+        val accumulated = StringBuilder()
+        var inferenceTimedOut = false
+        try {
+            withTimeout(InferenceTimeoutMs) {
+                inferenceEngine.stream(prompt, tier).collect { token ->
+                    accumulated.append(token)
+                    if (token.isNotBlank()) emit(WorkflowEvent.Token(token))
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            inferenceEngine.cancel()
+            inferenceTimedOut = true
         }
 
         phases.drop(3).forEach { (phase, text) ->
@@ -50,12 +73,28 @@ class WorkflowEngine(
             delay(90)
         }
 
-        val generated = LocalKnowledgeDrafting.generate(draft)
-        emit(WorkflowEvent.Result(parser.parseOrRepair(generated)))
+        val raw = accumulated.toString()
+        val fallbackReason = when {
+            inferenceTimedOut -> "Local model stopped after ${InferenceTimeoutMs / 1000}s. Showing structured offline summary instead."
+            else -> null
+        }
+        emit(
+            WorkflowEvent.Result(
+                parser.parseStructuredOrFallback(
+                    draft = draft,
+                    fallbackReason = fallbackReason,
+                    rawModelOutput = raw,
+                ),
+            ),
+        )
     }
 
     fun cancel() {
         inferenceEngine.cancel()
+    }
+
+    companion object {
+        private const val InferenceTimeoutMs = 240_000L
     }
 }
 
@@ -92,11 +131,93 @@ class StructuredOutputParser {
         isLenient = true
     }
 
-    fun parseOrRepair(raw: String): KnowledgeResult {
-        val trimmed = raw.substringAfter("```json", raw).substringBeforeLast("```").trim()
-        return runCatching { json.decodeFromString<KnowledgeResult>(trimmed) }
-            .getOrElse { LocalKnowledgeDrafting.emptyWithError("Local JSON repair needed: ${it.message}") }
+    fun heuristicOnly(draft: BookScanDraft): KnowledgeResult =
+        decodeHeuristic(LocalKnowledgeDrafting.generate(draft))
+
+    fun parseStructuredOrFallback(
+        draft: BookScanDraft,
+        fallbackReason: String?,
+        rawModelOutput: String?,
+    ): KnowledgeResult {
+        val trimmed = rawModelOutput?.trim().orEmpty()
+        val decoded = tryParse(trimmed).takeIf { hasUsefulSignal(it) }
+
+        if (decoded != null) {
+            return if (fallbackReason != null) {
+                decoded.copy(conciseMeaning = "$fallbackReason ${decoded.conciseMeaning}".trim())
+            } else {
+                decoded
+            }
+        }
+
+        val prefix = fallbackReason ?: when {
+            trimmed.contains("LiteRT-LM stream error", ignoreCase = true) ->
+                "The local model reported an error. Showing structured offline summary instead."
+            trimmed.isBlank() ->
+                "No response from local model yet. Showing structured offline summary instead."
+            else ->
+                "Could not parse the model output as JSON. Showing structured offline summary instead."
+        }
+
+        val heuristic = heuristicOnly(draft)
+        return heuristic.copy(
+            conciseMeaning = "$prefix ${heuristic.conciseMeaning}".trim(),
+        )
     }
+
+    private fun decodeHeuristic(jsonString: String): KnowledgeResult =
+        runCatching { json.decodeFromString<KnowledgeResult>(jsonString) }
+            .getOrElse { KnowledgeResult(conciseMeaning = "Offline summary unavailable: ${it.message}") }
+
+    private fun tryParse(raw: String): KnowledgeResult? {
+        val candidate = extractCandidateJson(raw) ?: return null
+        return runCatching { json.decodeFromString<KnowledgeResult>(candidate) }.getOrNull()
+    }
+
+    /** Best-effort: fenced ```json blocks, then first balanced `{ ... }`. */
+    private fun extractCandidateJson(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+
+        val fenceIdx = trimmed.indexOf("```json")
+        if (fenceIdx >= 0) {
+            val afterOpen = trimmed.indexOf('\n', fenceIdx).takeIf { it >= 0 }?.plus(1) ?: fenceIdx + 7
+            val close = trimmed.lastIndexOf("```")
+            if (close > afterOpen) {
+                val inner = trimmed.substring(afterOpen, close).trim()
+                substringBalancedJson(inner)?.let { return it }
+            }
+        }
+
+        return substringBalancedJson(trimmed)
+    }
+
+    private fun substringBalancedJson(s: String): String? {
+        val start = s.indexOf('{')
+        if (start < 0) return null
+        var depth = 0
+        var inString = false
+        var escape = false
+        for (i in start until s.length) {
+            val c = s[i]
+            when {
+                escape -> escape = false
+                c == '\\' && inString -> escape = true
+                c == '"' -> inString = !inString
+                !inString && c == '{' -> depth++
+                !inString && c == '}' -> {
+                    depth--
+                    if (depth == 0) return s.substring(start, i + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun hasUsefulSignal(result: KnowledgeResult): Boolean =
+        result.conciseMeaning.isNotBlank() ||
+            result.coreIdea.isNotBlank() ||
+            result.simplifiedExplanation.isNotBlank()
 }
 
 private object LocalKnowledgeDrafting {
