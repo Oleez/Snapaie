@@ -4,17 +4,17 @@
     <string name="onboarding_next">Continue</string>
     <string name="onboarding_get_started">Enter snapaie</string>
     <string name="onboarding_headline_snap">Snap dense pages.</string>
-    <string name="onboarding_detail_snap">Turn textbooks and ebooks into razor-sharp notes in seconds — built for learners who skim but still want mastery.</string>
+    <string name="onboarding_detail_snap">Turn textbooks and ebooks into razor-sharp notes in seconds - built for learners who skim but still want mastery.</string>
     <string name="onboarding_headline_model">Local AI, huge payoff.</string>
-    <string name="onboarding_detail_model">snapaie downloads an on-device model once (multi‑GB Wi‑Fi recommended). Then compression stays private and usable offline.</string>
+    <string name="onboarding_detail_model">snapaie downloads an on-device model once (multi-GB Wi-Fi recommended). Then compression stays private and usable offline.</string>
     <string name="onboarding_headline_privacy">Your pages stay yours.</string>
-    <string name="onboarding_detail_privacy">OCR runs on-device. Compressed results are saved locally. Cloud sync stays off until we ship it — subscriptions only unlock premium UX.</string>
+    <string name="onboarding_detail_privacy">OCR runs on-device. Compressed results are saved locally. Cloud sync stays off until we ship it - subscriptions only unlock premium UX.</string>
 
     <!-- Google Play listing helpers (mirror in Console) -->
-    <string name="aso_short_description">snapaie snaps book pages, strips filler, keeps knowledge — Gemma LiteRT offline.</string>
-    <string name="aso_full_description">Cut the fluff. Keep the knowledge. snapaie scans any page photo, OCRs it with ML Kit, then runs local Gemma (LiteRT) to deliver concise meaning, core ideas, author intent, student-friendly breakdowns, and flashcard-ready vocab. Subscribe for ad-light focus or unlock Pro for life.\n\n• Works offline once the model is downloaded\n• No chatbot gimmicks — built for textbooks and nonfiction\n• Transparent compression score and estimated time saved</string>
+    <string name="aso_short_description">snapaie snaps book pages, strips filler, keeps knowledge - Gemma LiteRT offline.</string>
+    <string name="aso_full_description">Cut the fluff. Keep the knowledge. snapaie scans any page photo, OCRs it with ML Kit, then runs local Gemma (LiteRT) to deliver concise meaning, core ideas, author intent, student-friendly breakdowns, and flashcard-ready vocab. Subscribe for ad-light focus or unlock Pro for life.\n\n- Works offline once the model is downloaded\n- No chatbot gimmicks - built for textbooks and nonfiction\n- Transparent compression score and estimated time saved</string>
 
-    <!-- Legal placeholders — replace URLs before prod -->
+    <!-- Legal placeholders - replace URLs before prod -->
     <string name="privacy_policy_url">https://example.com/snapaie/privacy</string>
     <string name="terms_of_sale_url">https://example.com/snapaie/terms</string>
     <string name="marketing_disclosure">Paid plans remove banners. Rewarded placements may appear for bonuses. Billing handled by Google Play; ads personalized when allowed by consent.</string>

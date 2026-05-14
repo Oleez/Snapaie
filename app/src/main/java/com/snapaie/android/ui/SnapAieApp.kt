@@ -5,6 +5,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,6 +47,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -53,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,7 +175,7 @@ private fun MainShell(container: AppContainer, billing: com.snapaie.android.bill
             if (!hideBottomBar) {
                 NavigationBar(
                     modifier = Modifier.navigationBarsPadding(),
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
                 ) {
                     BottomTab.entries.forEach { tab ->
                         NavigationBarItem(
@@ -197,6 +202,13 @@ private fun MainShell(container: AppContainer, billing: com.snapaie.android.bill
                                 )
                             },
                             label = { Text(tab.label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
                         )
                     }
                 }
@@ -274,7 +286,7 @@ private fun UpgradeScreen(container: AppContainer, onClose: () -> Unit) {
             LiquidGlassSurface {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.marketing_disclosure), style = MaterialTheme.typography.bodyMedium)
-                    Bullet("No banner ads • calmer scanning experience")
+                    Bullet("No banner ads - calmer scanning experience")
                     Bullet("Funds faster improvements and experimentation")
                     Bullet("Restore anytime with your Google Play account")
                 }
@@ -315,7 +327,7 @@ private fun UpgradeScreen(container: AppContainer, onClose: () -> Unit) {
 @Composable
 private fun Bullet(text: String) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("•", color = MaterialTheme.colorScheme.secondary)
+        Text("-", color = MaterialTheme.colorScheme.secondary)
         Text(text, style = MaterialTheme.typography.bodyMedium)
     }
 }
@@ -451,7 +463,7 @@ private fun ScanHub(
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Header("snapaie", if (isPro) "Reading mode: Pro unlocked." else "Free • upgrade for banner-free focus.")
+                    Header("snapaie", if (isPro) "Reading mode: Pro unlocked." else "Free - upgrade for banner-free focus.")
                 }
                 if (!isPro) {
                     TextButton(onClick = { navController.navigate(NavRoutes.Upgrade) }) { Text("Pro") }
@@ -473,8 +485,13 @@ private fun ScanHub(
                         }
                     }
                     modelState.warning?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+                    val modelProgress by animateFloatAsState(
+                        targetValue = modelState.progress.coerceIn(0f, 1f),
+                        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+                        label = "modelProgress",
+                    )
                     LinearProgressIndicator(
-                        progress = { modelState.progress.coerceIn(0f, 1f) },
+                        progress = { modelProgress },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Button(
@@ -677,10 +694,10 @@ private fun GrowthScreen(
         item {
             LiquidGlassSurface {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Metric(stats.streakDays.toString(), "streak")
-                    Metric(stats.pagesProcessed.toString(), "pages")
-                    Metric("${stats.minutesSaved}m", "saved")
-                    Metric("${stats.averageCompression}%", "avg")
+                    Metric(stats.streakDays.toString(), "streak", Modifier.weight(1f))
+                    Metric(stats.pagesProcessed.toString(), "pages", Modifier.weight(1f))
+                    Metric("${stats.minutesSaved}m", "saved", Modifier.weight(1f))
+                    Metric("${stats.averageCompression}%", "avg", Modifier.weight(1f))
                 }
             }
         }
@@ -706,29 +723,40 @@ private fun GrowthScreen(
 
 @Composable
 private fun ScanHero(isActive: Boolean) {
+    val sweep by animateFloatAsState(
+        targetValue = if (isActive) 0.34f else 0.64f,
+        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+        label = "scanHeroSweep",
+    )
     LiquidGlassSurface {
         Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF97E7D3).copy(alpha = 0.45f), Color.Transparent),
-                        center = Offset(size.width * 0.2f, size.height * 0.3f),
-                        radius = size.width * 0.55f,
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF88F0D0).copy(alpha = 0.18f),
+                            Color(0xFFFFD66B).copy(alpha = 0.10f),
+                            Color.Transparent,
+                        ),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height),
                     ),
                 )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFF0C36A).copy(alpha = 0.28f), Color.Transparent),
-                        center = Offset(size.width * 0.8f, size.height * 0.8f),
-                        radius = size.width * 0.5f,
-                    ),
-                )
-                val y = if (isActive) size.height * 0.42f else size.height * 0.58f
+                repeat(6) { index ->
+                    val y = size.height * (0.18f + index * 0.13f)
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.055f),
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y - 38f),
+                        strokeWidth = 2f,
+                    )
+                }
+                val y = size.height * sweep
                 drawLine(
-                    color = Color(0xFF97E7D3).copy(alpha = 0.85f),
-                    start = Offset(20f, y),
-                    end = Offset(size.width - 20f, y),
-                    strokeWidth = 5f,
+                    color = Color(0xFF88F0D0).copy(alpha = 0.88f),
+                    start = Offset(18f, y),
+                    end = Offset(size.width - 18f, y + 18f),
+                    strokeWidth = 4f,
                 )
             }
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -750,13 +778,26 @@ private fun Header(title: String, subtitle: String) {
 
 @Composable
 private fun Metric(value: String, label: String) {
+    Metric(value, label, Modifier)
+}
+
+@Composable
+private fun Metric(value: String, label: String, modifier: Modifier) {
     Column(
-        modifier = Modifier
-            .background(Color.White.copy(alpha = 0.08f), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+        modifier = modifier
+            .background(
+                brush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.055f),
+                    ),
+                ),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
-        Text(value, style = MaterialTheme.typography.titleMedium)
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
     }
 }
 

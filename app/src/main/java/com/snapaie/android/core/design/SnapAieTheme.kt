@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -27,17 +28,18 @@ val SnapSpring = spring<Float>(
 )
 
 private val Scheme: ColorScheme = darkColorScheme(
-    primary = Color(0xFF97E7D3),
-    secondary = Color(0xFFF0C36A),
-    tertiary = Color(0xFFB6C8FF),
-    background = Color(0xFF101416),
-    surface = Color(0xFF161D20),
-    surfaceVariant = Color(0xFF263034),
-    onPrimary = Color(0xFF06201A),
-    onSecondary = Color(0xFF2A1A00),
-    onBackground = Color(0xFFE8F0ED),
-    onSurface = Color(0xFFE8F0ED),
-    onSurfaceVariant = Color(0xFFC4D0CC),
+    primary = Color(0xFF88F0D0),
+    secondary = Color(0xFFFFD66B),
+    tertiary = Color(0xFFAFC7FF),
+    background = Color(0xFF0E1415),
+    surface = Color(0xFF151B1D),
+    surfaceVariant = Color(0xFF263135),
+    onPrimary = Color(0xFF06211A),
+    onSecondary = Color(0xFF2A2100),
+    onBackground = Color(0xFFEAF3EF),
+    onSurface = Color(0xFFEAF3EF),
+    onSurfaceVariant = Color(0xFFB9C9C4),
+    outline = Color(0xFF50605F),
 )
 
 @Composable
@@ -60,22 +62,24 @@ fun LiquidGlassSurface(
     val shape = RoundedCornerShape(radius)
     Box(
         modifier = modifier
+            .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.28f), spotColor = Color.Black.copy(alpha = 0.34f))
             .clip(shape)
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.16f),
-                        Color.White.copy(alpha = 0.07f),
+                        Color.White.copy(alpha = 0.18f),
+                        Color(0xFF88F0D0).copy(alpha = 0.07f),
+                        Color.Black.copy(alpha = 0.08f),
                     ),
                 ),
             )
-            .border(1.dp, Color.White.copy(alpha = 0.18f), shape),
+            .border(1.dp, Color.White.copy(alpha = 0.20f), shape),
     ) {
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .blur(blur)
-                .background(Color.White.copy(alpha = 0.03f)),
+                .background(Color.White.copy(alpha = 0.035f)),
         )
         Box(
             modifier = Modifier
@@ -90,9 +94,10 @@ fun LiquidGlassSurface(
 fun Modifier.snapScreenBackground(): Modifier = background(
     Brush.linearGradient(
         colors = listOf(
-            Color(0xFF101416),
-            Color(0xFF17211F),
-            Color(0xFF171C24),
+            Color(0xFF0E1415),
+            Color(0xFF16221E),
+            Color(0xFF151A24),
+            Color(0xFF211A1A),
         ),
     ),
 )
