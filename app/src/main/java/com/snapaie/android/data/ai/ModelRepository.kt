@@ -22,7 +22,7 @@ class ModelRepository(
     private val client: OkHttpClient,
 ) {
     private val modelsDir = File(context.filesDir, "models").also { it.mkdirs() }
-    private val _state = MutableStateFlow(currentState(ModelTier.Gemma4E2B))
+    private val _state = MutableStateFlow(currentState(ModelTier.Gemma3nE2B))
     val state: StateFlow<ModelSetupState> = _state
 
     fun modelFile(tier: ModelTier): File = File(modelsDir, tier.fileName)
@@ -97,6 +97,12 @@ class ModelRepository(
                 )
             }
         }
+    }
+
+    /** Removes downloaded weights and any partial files (settings reset / free space). */
+    suspend fun deleteAllWeights() = withContext(Dispatchers.IO) {
+        modelsDir.listFiles()?.forEach { it.delete() }
+        _state.value = currentState(_state.value.selectedTier)
     }
 
     private fun currentState(tier: ModelTier): ModelSetupState {

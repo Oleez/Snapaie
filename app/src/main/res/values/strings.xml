@@ -6,16 +6,16 @@
     <string name="onboarding_headline_snap">Snap dense pages.</string>
     <string name="onboarding_detail_snap">Turn textbooks and ebooks into razor-sharp notes in seconds - built for learners who skim but still want mastery.</string>
     <string name="onboarding_headline_model">Local AI, huge payoff.</string>
-    <string name="onboarding_detail_model">snapaie downloads an on-device model once (multi-GB Wi-Fi recommended). Then compression stays private and usable offline.</string>
+    <string name="onboarding_detail_model">snapaie downloads an on-device model once (multi-GB, Wi-Fi recommended). After that, compression stays private and works with no signal at all.</string>
     <string name="onboarding_headline_privacy">Your pages stay yours.</string>
-    <string name="onboarding_detail_privacy">OCR runs on-device. Compressed results are saved locally. Cloud sync stays off until we ship it - subscriptions only unlock premium UX.</string>
+    <string name="onboarding_detail_privacy">OCR, AI, history, and narration all run on this device. No account, no cloud, no data cost. It works in airplane mode.</string>
 
     <!-- Google Play listing helpers (mirror in Console) -->
-    <string name="aso_short_description">snapaie snaps book pages, strips filler, keeps knowledge - Gemma LiteRT offline.</string>
-    <string name="aso_full_description">Cut the fluff. Keep the knowledge. snapaie scans any page photo, OCRs it with ML Kit, then runs local Gemma (LiteRT) to deliver concise meaning, core ideas, author intent, student-friendly breakdowns, and flashcard-ready vocab. Subscribe for ad-light focus or unlock Pro for life.\n\n- Works offline once the model is downloaded\n- No chatbot gimmicks - built for textbooks and nonfiction\n- Transparent compression score and estimated time saved</string>
+    <string name="aso_short_description">Offline AI reading assistant. No internet, no data cost, nothing leaves your phone.</string>
+    <string name="aso_full_description">The only reading assistant that never sends your pages anywhere - it works with airplane mode on and costs zero data.\n\nsnapaie photographs any page, reads it with on-device OCR, then runs Gemma locally to deliver concise meaning, the core idea, author intent, a simplified explanation, actionable takeaways, and CEFR vocabulary.\n\n- 100%% offline AI after a one-time model download\n- Works with no internet: no data charges, ever\n- Nothing leaves your device: no account, no login, no cloud sync\n- Snap selected text from any app, or share pages and PDFs straight in\n- Forge Recall: spaced repetition that turns what you read into what you remember\n- Follow-up chat, writing tools, and narration - all on-device\n- One-time Pro unlock. No subscription.</string>
 
     <!-- Legal placeholders - replace URLs before prod -->
     <string name="privacy_policy_url">https://example.com/snapaie/privacy</string>
     <string name="terms_of_sale_url">https://example.com/snapaie/terms</string>
-    <string name="marketing_disclosure">Paid plans remove banners. Rewarded placements may appear for bonuses. Billing handled by Google Play; ads personalized when allowed by consent.</string>
+    <string name="marketing_disclosure">snapaie Pro is a one-time purchase handled by Google Play. There are no ads and no subscriptions.</string>
 </resources>

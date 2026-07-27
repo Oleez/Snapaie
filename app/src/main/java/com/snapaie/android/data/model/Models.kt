@@ -3,12 +3,31 @@ package com.snapaie.android.data.model
 import com.snapaie.android.BuildConfig
 import kotlinx.serialization.Serializable
 
-enum class KnowledgeMode(val label: String, val description: String) {
+/**
+ * Unified explanation style axis (merges the legacy 5 KnowledgeModes with the
+ * extension's 6 explanation styles). Legacy DB rows map via [fromStored].
+ */
+enum class ExplainStyle(val label: String, val description: String) {
+    Auto("Auto", "Pick the single best explanation style for this text automatically."),
     Concise("Concise", "Compress aggressively and keep only essential meaning."),
-    CoreInsight("Core Insight", "Extract the main takeaway and author intent."),
-    Student("Student", "Simplify difficult concepts for exam-ready understanding."),
-    FastRead("Fast Read", "Summarize the page instantly and reduce reading time."),
-    DeepMeaning("Deep Meaning", "Explain hidden psychology, philosophy, or business insight."),
+    Detailed("Detailed", "Explain thoroughly with depth, nuance, and hidden meaning."),
+    Bullets("Bullets", "Summarize instantly as skimmable bullet points."),
+    Analogy("Analogy", "Explain through a vivid, relatable analogy."),
+    Steps("Steps", "Break it down step-by-step for exam-ready understanding."),
+    ;
+
+    companion object {
+        /** Maps both new names and legacy KnowledgeMode names stored in Room. */
+        fun fromStored(value: String): ExplainStyle = when (value) {
+            "Concise" -> Concise
+            "Detailed", "DeepMeaning" -> Detailed
+            "Bullets", "FastRead" -> Bullets
+            "Analogy" -> Analogy
+            "Steps", "Student" -> Steps
+            "Auto", "CoreInsight" -> Auto
+            else -> Auto
+        }
+    }
 }
 
 enum class ScanPhase(val label: String) {
@@ -35,46 +54,67 @@ data class KnowledgeResult(
     val estimatedTimeSavedMinutes: Int = 0,
     val hiddenMeaning: String = "",
     val keyQuotesToKeep: List<String> = emptyList(),
+    val cefrVocabulary: CefrVocab? = null,
+    val plainTextFallback: String = "",
+    val styleUsed: String = "",
 ) {
+    val isPlainTextOnly: Boolean
+        get() = plainTextFallback.isNotBlank() &&
+            conciseMeaning.isBlank() && coreIdea.isBlank() && simplifiedExplanation.isBlank()
+
     fun toMarkdown(includeBranding: Boolean = true): String = buildString {
         appendLine("# snapaie Knowledge Scan")
         appendLine()
-        appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
-        appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
-        appendLine()
-        appendLine("## Concise Meaning")
-        appendLine(conciseMeaning.ifBlank { "Not generated." })
-        appendLine()
-        appendLine("## Core Idea")
-        appendLine(coreIdea.ifBlank { "Not generated." })
-        appendLine()
-        appendLine("## Author Intent")
-        appendLine(authorIntent.ifBlank { "Not generated." })
-        appendLine()
-        appendLine("## Simplified Explanation")
-        appendLine(simplifiedExplanation.ifBlank { "Not generated." })
-        appendLine()
-        appendList("Actionable Insights", actionableInsights)
-        appendLine("## Smart Vocabulary")
-        if (importantVocabulary.isEmpty()) {
-            appendLine("Not generated.")
+        if (isPlainTextOnly) {
+            appendLine(plainTextFallback)
         } else {
-            importantVocabulary.forEach {
-                appendLine("- **${it.word}** (${it.pronunciation.ifBlank { "pronunciation TBD" }}): ${it.meaning} Simpler: ${it.simplerVersion}")
+            appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
+            appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
+            appendLine()
+            appendLine("## Concise Meaning")
+            appendLine(conciseMeaning.ifBlank { "Not generated." })
+            appendLine()
+            appendLine("## Core Idea")
+            appendLine(coreIdea.ifBlank { "Not generated." })
+            appendLine()
+            appendLine("## Author Intent")
+            appendLine(authorIntent.ifBlank { "Not generated." })
+            appendLine()
+            appendLine("## Simplified Explanation")
+            appendLine(simplifiedExplanation.ifBlank { "Not generated." })
+            appendLine()
+            appendList("Actionable Insights", actionableInsights)
+            appendLine("## Smart Vocabulary")
+            if (importantVocabulary.isEmpty()) {
+                appendLine("Not generated.")
+            } else {
+                importantVocabulary.forEach {
+                    appendLine("- **${it.word}**: ${it.meaning} Simpler: ${it.simplerVersion}")
+                }
+            }
+            appendLine()
+            appendLine("## Filler Detected")
+            if (fillerDetected.isEmpty()) {
+                appendLine("No obvious filler detected.")
+            } else {
+                fillerDetected.forEach { appendLine("- ${it.type}: ${it.excerpt} -> ${it.reason}") }
+            }
+            appendLine()
+            appendLine("## Hidden Meaning")
+            appendLine(hiddenMeaning.ifBlank { "Not generated." })
+            appendLine()
+            appendList("Key Quotes To Keep", keyQuotesToKeep)
+            cefrVocabulary?.let { cefr ->
+                appendLine("## CEFR Vocabulary")
+                listOf("B2" to cefr.b2, "C1" to cefr.c1, "C2" to cefr.c2).forEach { (level, words) ->
+                    if (words.isNotEmpty()) {
+                        appendLine("### $level")
+                        words.forEach { appendLine("- **${it.word}** (${it.partOfSpeech}): ${it.definition} _e.g. ${it.example}_") }
+                    }
+                }
+                appendLine()
             }
         }
-        appendLine()
-        appendLine("## Filler Detected")
-        if (fillerDetected.isEmpty()) {
-            appendLine("No obvious filler detected.")
-        } else {
-            fillerDetected.forEach { appendLine("- ${it.type}: ${it.excerpt} -> ${it.reason}") }
-        }
-        appendLine()
-        appendLine("## Hidden Meaning")
-        appendLine(hiddenMeaning.ifBlank { "Not generated." })
-        appendLine()
-        appendList("Key Quotes To Keep", keyQuotesToKeep)
         if (includeBranding) {
             appendLine()
             appendLine("---")
@@ -98,6 +138,23 @@ data class FillerItem(
     val type: String,
 )
 
+@Serializable
+data class CefrVocab(
+    val b2: List<CefrWord> = emptyList(),
+    val c1: List<CefrWord> = emptyList(),
+    val c2: List<CefrWord> = emptyList(),
+) {
+    val isEmpty: Boolean get() = b2.isEmpty() && c1.isEmpty() && c2.isEmpty()
+}
+
+@Serializable
+data class CefrWord(
+    val word: String,
+    val partOfSpeech: String = "",
+    val definition: String = "",
+    val example: String = "",
+)
+
 private fun StringBuilder.appendList(title: String, values: List<String>) {
     appendLine("## $title")
     if (values.isEmpty()) {
@@ -109,7 +166,7 @@ private fun StringBuilder.appendList(title: String, values: List<String>) {
 }
 
 data class BookScanDraft(
-    val mode: KnowledgeMode = KnowledgeMode.Concise,
+    val mode: ExplainStyle = ExplainStyle.Auto,
     val bookTitle: String = "",
     val pageText: String = "",
     val context: String = "",
@@ -127,12 +184,14 @@ data class ReaderStats(
     val insightsLearned: Int = 0,
     val minutesSaved: Int = 0,
     val averageCompression: Int = 0,
+    val wordsIn: Int = 0,
+    val wordsOut: Int = 0,
 )
 
 data class ModelSetupState(
-    val selectedTier: ModelTier = ModelTier.Gemma4E2B,
+    val selectedTier: ModelTier = ModelTier.Gemma3nE2B,
     val downloadedBytes: Long = 0L,
-    val totalBytes: Long = ModelTier.Gemma4E2B.estimatedBytes,
+    val totalBytes: Long = ModelTier.Gemma3nE2B.estimatedBytes,
     val isDownloading: Boolean = false,
     val isReady: Boolean = false,
     val warning: String? = null,
@@ -144,31 +203,48 @@ data class ModelSetupState(
 enum class ModelTier(
     val displayName: String,
     val fileName: String,
-    val downloadUrl: String,
     val sha256: String,
     val estimatedBytes: Long,
     val recommendedRamGb: Int,
 ) {
-    Gemma4E2B(
-        displayName = "Gemma 4 E2B local",
-        fileName = "gemma-4-E2B-it.litertlm",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+    Gemma3nE2B(
+        displayName = "Gemma 3n E2B (fast, ~3.1 GB)",
+        fileName = "gemma-3n-E2B-it-int4.litertlm",
         sha256 = "",
-        estimatedBytes = 7_200_000_000L,
+        estimatedBytes = 3_100_000_000L,
+        recommendedRamGb = 4,
+    ),
+    Gemma3nE4B(
+        displayName = "Gemma 3n E4B (sharper, ~4.4 GB)",
+        fileName = "gemma-3n-E4B-it-int4.litertlm",
+        sha256 = "",
+        estimatedBytes = 4_400_000_000L,
         recommendedRamGb = 6,
     ),
-    Gemma4E4B(
-        displayName = "Gemma 4 E4B local",
-        fileName = "gemma-4-E4B-it.litertlm",
-        downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
-        sha256 = "",
-        estimatedBytes = 9_600_000_000L,
-        recommendedRamGb = 10,
-    ),
+    ;
+
+    /**
+     * Weights are served from a self-hosted mirror (Gemma Terms are shown and accepted
+     * in-app before download). Falls back to the license-gated Hugging Face repo path
+     * when no mirror is configured (dev builds).
+     */
+    val downloadUrl: String
+        get() {
+            val base = BuildConfig.MODEL_MIRROR_BASE_URL.trimEnd('/')
+            return if (base.isNotBlank()) {
+                "$base/$fileName"
+            } else {
+                val repo = when (this) {
+                    Gemma3nE2B -> "litert-community/Gemma-3n-E2B-it-litert-lm"
+                    Gemma3nE4B -> "litert-community/Gemma-3n-E4B-it-litert-lm"
+                }
+                "https://huggingface.co/$repo/resolve/main/$fileName"
+            }
+        }
 }
 
 /** SHA-256 from [gradle.properties] overrides enum defaults when set (release integrity). */
 fun ModelTier.effectiveSha256(): String = when (this) {
-    ModelTier.Gemma4E2B -> BuildConfig.EXPECTED_MODEL_SHA256_E2B.ifBlank { sha256 }
-    ModelTier.Gemma4E4B -> BuildConfig.EXPECTED_MODEL_SHA256_E4B.ifBlank { sha256 }
+    ModelTier.Gemma3nE2B -> BuildConfig.EXPECTED_MODEL_SHA256_E2B.ifBlank { sha256 }
+    ModelTier.Gemma3nE4B -> BuildConfig.EXPECTED_MODEL_SHA256_E4B.ifBlank { sha256 }
 }

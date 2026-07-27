@@ -1,7 +1,7 @@
 package com.snapaie.android.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,9 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -30,9 +32,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.snapaie.android.R
+import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
+import com.snapaie.android.core.design.components.XpBar
 import com.snapaie.android.core.design.snapScreenBackground
 import kotlinx.coroutines.launch
+
+private data class OnboardingPage(val title: String, val body: String, val demo: Boolean = false)
 
 @Composable
 fun OnboardingFlow(
@@ -42,21 +48,21 @@ fun OnboardingFlow(
     var step by rememberSaveable { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    val pages =
-        listOf(
-            Triple(
-                stringResource(R.string.onboarding_headline_snap),
-                stringResource(R.string.onboarding_detail_snap),
-            ),
-            Triple(
-                stringResource(R.string.onboarding_headline_model),
-                stringResource(R.string.onboarding_detail_model),
-            ),
-            Triple(
-                stringResource(R.string.onboarding_headline_privacy),
-                stringResource(R.string.onboarding_detail_privacy),
-            ),
-        )
+    val pages = listOf(
+        OnboardingPage(
+            stringResource(R.string.onboarding_headline_snap),
+            stringResource(R.string.onboarding_detail_snap),
+            demo = true,
+        ),
+        OnboardingPage(
+            stringResource(R.string.onboarding_headline_privacy),
+            stringResource(R.string.onboarding_detail_privacy),
+        ),
+        OnboardingPage(
+            stringResource(R.string.onboarding_headline_model),
+            stringResource(R.string.onboarding_detail_model),
+        ),
+    )
 
     Column(
         modifier = Modifier
@@ -66,7 +72,7 @@ fun OnboardingFlow(
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val (title, body) = pages[step.coerceIn(0, pages.lastIndex)]
+        val page = pages[step.coerceIn(0, pages.lastIndex)]
         LiquidGlassSurface(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(18.dp), horizontalAlignment = Alignment.Start) {
                 Box(
@@ -85,13 +91,17 @@ fun OnboardingFlow(
                 ) {
                     Text("${step + 1}", color = Color(0xFF06211A), fontWeight = FontWeight.SemiBold)
                 }
-                Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                Text(page.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    body,
+                    page.body,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                // Value demo first (PDF rule): show the payoff before asking for a 3 GB download.
+                if (page.demo) SampleResultPreview()
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     pages.indices.forEach { index ->
                         Box(
@@ -122,9 +132,57 @@ fun OnboardingFlow(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (step < pages.lastIndex) stringResource(R.string.onboarding_next) else stringResource(R.string.onboarding_get_started))
+                    Text(
+                        if (step < pages.lastIndex) {
+                            stringResource(R.string.onboarding_next)
+                        } else {
+                            stringResource(R.string.onboarding_get_started)
+                        },
+                    )
+                }
+                if (step < pages.lastIndex) {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                prefs.setOnboardingCompleted()
+                                onFinished()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Skip") }
                 }
             }
+        }
+    }
+}
+
+/** A canned before/after so the first screen proves the payoff without any model. */
+@Composable
+private fun SampleResultPreview() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(DesignTokens.ForgeHero)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("A page of dense text →", color = DesignTokens.ForgeText.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+        Text(
+            "\"Compound interest rewards time in the market far more than timing of the market, because returns accrue on prior returns…\"",
+            color = DesignTokens.ForgeText.copy(alpha = 0.55f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text("Core idea", color = DesignTokens.Mint, style = MaterialTheme.typography.labelMedium)
+        Text(
+            "Staying invested beats trying to pick moments — growth builds on previous growth.",
+            color = DesignTokens.ForgeText,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        XpBar(progress = 0.82f)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("82% compressed", color = DesignTokens.DueAmber, style = MaterialTheme.typography.labelMedium)
+            Text("✈️ airplane mode", color = DesignTokens.ForgeText.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
         }
     }
 }

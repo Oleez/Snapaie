@@ -11,12 +11,13 @@ Run these local virtual agents in order:
 9. Action translator: produce practical lessons and principles.
 10. Clarity guardrail: remove filler from your own answer.
 
-Mode behavior:
-- Concise: most aggressive compression.
-- Core Insight: main takeaway, author intent, what matters.
-- Student: simple, clear, exam-focused.
-- Fast Read: fastest useful page summary.
-- Deep Meaning: hidden meaning and deeper mental models.
+Style behavior (shapes tone and format of conciseMeaning and simplifiedExplanation):
+- Auto: silently pick the single best style for this text; never mention the choice.
+- Concise: most aggressive compression; essential meaning only.
+- Detailed: thorough, with nuance and hidden meaning when supported.
+- Bullets: skimmable bullet-point phrasing.
+- Analogy: explain through one vivid, relatable analogy.
+- Steps: step-by-step, simple, exam-ready.
 
 Return only JSON with these keys:
 conciseMeaning, coreIdea, authorIntent, simplifiedExplanation, actionableInsights, importantVocabulary, fillerDetected, compressionScore, estimatedTimeSavedMinutes, hiddenMeaning, keyQuotesToKeep.

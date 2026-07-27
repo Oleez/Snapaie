@@ -1,9 +1,9 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.kotlin.plugin.serialization")
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 @Suppress("DEPRECATION")
@@ -11,39 +11,29 @@ val shaE2B = (project.findProperty("snapaie.model.sha256.e2b") as String?)?.trim
 @Suppress("DEPRECATION")
 val shaE4B = (project.findProperty("snapaie.model.sha256.e4b") as String?)?.trim().orEmpty()
 @Suppress("DEPRECATION")
-val billingSub =
-    (project.findProperty("snapaie.billing.subscription.id") as String?) ?: "snapaie_pro_monthly"
-@Suppress("DEPRECATION")
 val billingLifetime =
     (project.findProperty("snapaie.billing.lifetime.id") as String?) ?: "snapaie_pro_lifetime"
 @Suppress("DEPRECATION")
-val admobAppId =
-    (project.findProperty("snapaie.admob.application.id") as String?)
-        ?: "ca-app-pub-3940256099942544~3347511713"
-@Suppress("DEPRECATION")
-val admobBannerUnit =
-    (project.findProperty("snapaie.admob.banner.unit.id") as String?)
-        ?: "ca-app-pub-3940256099942544/6300978111"
+val modelMirrorBase =
+    (project.findProperty("snapaie.model.mirror.base.url") as String?)?.trim().orEmpty()
 
 android {
     namespace = "com.snapaie.android"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.snapaie.android"
         minSdk = 31
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 36
+        versionCode = 2
+        versionName = "1.0.0"
         vectorDrawables {
             useSupportLibrary = true
         }
-        manifestPlaceholders["admobApplicationId"] = admobAppId
         buildConfigField("String", "EXPECTED_MODEL_SHA256_E2B", "\"$shaE2B\"")
         buildConfigField("String", "EXPECTED_MODEL_SHA256_E4B", "\"$shaE4B\"")
-        buildConfigField("String", "BILLING_PRODUCT_SUBSCRIPTION", "\"$billingSub\"")
         buildConfigField("String", "BILLING_PRODUCT_LIFETIME", "\"$billingLifetime\"")
-        buildConfigField("String", "ADMOB_BANNER_AD_UNIT_ID", "\"$admobBannerUnit\"")
+        buildConfigField("String", "MODEL_MIRROR_BASE_URL", "\"$modelMirrorBase\"")
     }
 
     buildTypes {
@@ -83,51 +73,59 @@ android {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
+    implementation(platform(libs.compose.bom))
+    androidTestImplementation(platform(libs.compose.bom))
 
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-graphics")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
 
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
 
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
 
-    implementation("androidx.navigation:navigation-compose:2.8.5")
-    implementation("androidx.camera:camera-camera2:1.4.1")
-    implementation("androidx.camera:camera-lifecycle:1.4.1")
-    implementation("androidx.camera:camera-view:1.4.1")
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
 
-    implementation("com.google.accompanist:accompanist-permissions:0.37.5")
+    implementation(libs.accompanist.permissions)
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
 
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
 
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(libs.okhttp)
 
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
+    implementation(libs.mlkit.text.recognition)
+    implementation(libs.litertlm.android)
 
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
-    implementation("com.google.android.gms:play-services-ads:23.6.0")
-    implementation("com.google.android.ump:user-messaging-platform:3.1.0")
+    implementation(libs.billing.ktx)
 
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.androidx.room.testing)
+
+    debugImplementation(libs.compose.ui.tooling)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 kotlin {
