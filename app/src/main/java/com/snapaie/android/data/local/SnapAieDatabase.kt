@@ -217,6 +217,7 @@ interface RecallDao {
 data class NoteEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val text: String,
+    /** Reserved for the reminder feature; nothing schedules on it yet. */
     val reminderAtMillis: Long? = null,
     val done: Boolean = false,
     val createdAtMillis: Long,
