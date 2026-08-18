@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
@@ -69,10 +70,19 @@ import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.nav.Routes
+import com.snapaie.android.domain.notifications.NotificationKind
+import com.snapaie.android.ui.notifications.LocalSnapToast
+import com.snapaie.android.ui.notifications.NotificationBell
 import kotlinx.coroutines.launch
+import com.snapaie.android.core.design.components.ScreenHeader
 
 @Composable
-fun ScanHubScreen(viewModel: SnapAieViewModel, navController: NavHostController) {
+fun ScanHubScreen(
+    viewModel: SnapAieViewModel,
+    navController: NavHostController,
+    unreadNotifications: Int = 0,
+    onOpenNotifications: () -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -104,8 +114,11 @@ fun ScanHubScreen(viewModel: SnapAieViewModel, navController: NavHostController)
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = { navController.navigate(Routes.Settings) }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NotificationBell(unreadCount = unreadNotifications, onClick = onOpenNotifications)
+                    IconButton(onClick = { navController.navigate(Routes.Settings) }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    }
                 }
             }
         }
@@ -180,7 +193,7 @@ fun ScanHubScreen(viewModel: SnapAieViewModel, navController: NavHostController)
                         label = { Text("Page text (or paste anything)") },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(160.dp),
+                            .heightIn(min = 160.dp),
                     )
                     Button(
                         onClick = {
@@ -371,6 +384,7 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
     val isPro by viewModel.isPro.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val toast = LocalSnapToast.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val current = scan ?: run {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -387,13 +401,11 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(current.bookTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text(current.mode.label, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.labelLarge)
-                }
-                TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
-            }
+            ScreenHeader(
+                title = current.bookTitle,
+                subtitle = current.mode.label,
+                onBack = { navController.popBackStack() },
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -467,6 +479,19 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
                                 isPro -> "Already in your deck."
                                 else -> "Free deck is full (5 topics). Unlock Pro for unlimited."
                             }
+                            // Port of the extension's promptUpgradePricing(): a paywall
+                            // hit is worth keeping in the notification centre, since the
+                            // inline message disappears the moment the screen changes.
+                            if (saved == null && !isPro) {
+                                viewModel.notificationCenter.push(
+                                    message = "Your free Forge deck holds 5 topics. Pro is a one-time " +
+                                        "purchase and removes the cap.",
+                                    title = "Deck full",
+                                    kind = NotificationKind.Promo,
+                                    ctaRoute = Routes.Upgrade,
+                                    ctaLabel = "See Pro",
+                                )
+                            }
                         }
                     },
                     label = { Text("🧠 Forge topic") },
@@ -481,13 +506,21 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
                                     current.bookTitle,
                                 ),
                             )
+                            toast.show("Markdown ready to share.")
                         },
                         label = { Text("Export .md") },
                     )
                 }
                 AssistChip(
                     onClick = {
-                        viewModel.deleteScan(current.id)
+                        val title = current.bookTitle
+                        viewModel.deleteScan(current.id) { undo ->
+                            toast.show(
+                                message = "Deleted \"$title\"",
+                                actionLabel = "Undo",
+                                onAction = undo,
+                            )
+                        }
                         navController.popBackStack()
                     },
                     label = { Text("Delete") },

@@ -16,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -34,6 +33,7 @@ import com.snapaie.android.domain.recall.XpLedger
 import com.snapaie.android.domain.stats.ReaderStatsAggregator
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.nav.Routes
+import com.snapaie.android.core.design.components.ScreenHeader
 
 @Composable
 fun ProgressScreen(viewModel: SnapAieViewModel, navController: NavHostController) {
@@ -129,10 +129,7 @@ fun ReaderReportScreen(viewModel: SnapAieViewModel, navController: NavHostContro
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Reader Report", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
-        }
+        ScreenHeader("Reader Report", onBack = { navController.popBackStack() })
         Column(
             modifier = Modifier
                 .fillMaxWidth()

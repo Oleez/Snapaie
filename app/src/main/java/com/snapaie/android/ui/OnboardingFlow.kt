@@ -27,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,7 +88,7 @@ fun OnboardingFlow(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("${step + 1}", color = Color(0xFF06211A), fontWeight = FontWeight.SemiBold)
+                    Text("${step + 1}", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
                 }
                 Text(page.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
                 Text(

@@ -18,8 +18,12 @@ import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ReaderStats
 import com.snapaie.android.data.preferences.UserSettings
 import com.snapaie.android.domain.ReadingStreak
+import com.snapaie.android.domain.notifications.InAppNotification
+import com.snapaie.android.domain.notifications.NotificationCenter
+import com.snapaie.android.domain.notifications.NotificationKind
 import com.snapaie.android.domain.scan.ScanMetrics
 import com.snapaie.android.domain.scan.WorkflowEvent
+import com.snapaie.android.ui.nav.Routes
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +51,12 @@ class SnapAieViewModel(
     val container: AppContainer,
 ) : ViewModel() {
     val modelState: StateFlow<ModelSetupState> = container.modelRepository.state
+
+    val notificationCenter: NotificationCenter get() = container.notificationCenter
+
+    val notifications: StateFlow<List<InAppNotification>> = container.notificationCenter.items
+
+    val unreadNotifications: StateFlow<Int> = container.notificationCenter.unreadCount
 
     val settings: StateFlow<UserSettings> = container.appPreferencesRepository.userSettings
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserSettings())
@@ -78,6 +88,24 @@ class SnapAieViewModel(
             .observeScan(scanId)
             .map { entity -> entity?.toDomain() }
             .distinctUntilChanged()
+
+    init {
+        // A multi-GB download finishes long after the user has left the Snap tab,
+        // so it belongs in the notification centre rather than a transient toast.
+        viewModelScope.launch {
+            var wasDownloading = false
+            modelState.collect { state ->
+                if (wasDownloading && state.isReady && !state.isDownloading) {
+                    container.notificationCenter.push(
+                        message = "${state.selectedTier.displayName} is ready. Every scan from here runs on-device.",
+                        title = "Model ready",
+                        kind = NotificationKind.Update,
+                    )
+                }
+                wasDownloading = state.isDownloading
+            }
+        }
+    }
 
     private var job: Job? = null
     private val _uiState = MutableStateFlow(ScanUiState())
@@ -199,6 +227,15 @@ class SnapAieViewModel(
                         _uiState.update {
                             it.copy(result = event.result, lastSavedScanId = id, isRunning = false)
                         }
+                        container.notificationCenter.push(
+                            message = "${draft.bookTitle.ifBlank { "Your page" }} compressed " +
+                                "${event.result.compressionScore}% · " +
+                                "${event.result.estimatedTimeSavedMinutes} min saved.",
+                            title = "Scan saved",
+                            kind = NotificationKind.Update,
+                            ctaRoute = Routes.scanDetail(id),
+                            ctaLabel = "Open scan",
+                        )
                     }
                 }
             }
@@ -219,8 +256,22 @@ class SnapAieViewModel(
         }
     }
 
-    fun deleteScan(scanId: Long) {
-        viewModelScope.launch { container.database.knowledgeScanDao().deleteById(scanId) }
+    /**
+     * Deletes a scan and hands back an undo action.
+     *
+     * Ported from the extension's undoable history delete: the row is restored
+     * with its original primary key, so chat sessions that point at this scan
+     * keep working after an undo.
+     */
+    fun deleteScan(scanId: Long, onDeleted: (undo: () -> Unit) -> Unit = {}) {
+        viewModelScope.launch {
+            val dao = container.database.knowledgeScanDao()
+            val snapshot = dao.getScan(scanId)
+            dao.deleteById(scanId)
+            if (snapshot != null) {
+                onDeleted { viewModelScope.launch { dao.insert(snapshot) } }
+            }
+        }
     }
 
     fun cancelRun() {

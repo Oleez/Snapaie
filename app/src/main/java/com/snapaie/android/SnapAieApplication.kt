@@ -17,6 +17,8 @@ import com.snapaie.android.data.preferences.AppPreferencesRepository
 import com.snapaie.android.domain.chat.ChatEngine
 import com.snapaie.android.domain.recall.RecallEngine
 import com.snapaie.android.domain.scan.WorkflowEngine
+import com.snapaie.android.domain.notifications.NotificationCenter
+import com.snapaie.android.domain.share.LibraryExporter
 import com.snapaie.android.domain.share.MarkdownExporter
 import com.snapaie.android.domain.share.ShareCardRenderer
 import com.snapaie.android.domain.vocab.VocabEngine
@@ -76,6 +78,8 @@ class SnapAieApplication : Application() {
             recallEngine = RecallEngine(sessionManager, database.recallDao(), prefs),
             shareCardRenderer = ShareCardRenderer(applicationContext),
             markdownExporter = MarkdownExporter(applicationContext),
+            libraryExporter = LibraryExporter(applicationContext),
+            notificationCenter = NotificationCenter(preferences = prefs, scope = appScope),
             ttsSpeaker = TtsSpeaker(applicationContext),
             appPreferencesRepository = prefs,
             billingBridge = billingBridge,
@@ -110,6 +114,8 @@ data class AppContainer(
     val recallEngine: RecallEngine,
     val shareCardRenderer: ShareCardRenderer,
     val markdownExporter: MarkdownExporter,
+    val libraryExporter: LibraryExporter,
+    val notificationCenter: NotificationCenter,
     val ttsSpeaker: TtsSpeaker,
     val appPreferencesRepository: AppPreferencesRepository,
     val billingBridge: BillingBridge,

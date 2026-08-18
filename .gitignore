@@ -11,3 +11,6 @@ externalNativeBuild/
 *.aab
 *.litertlm
 *.part
+
+# Local design notes and reference material, never published.
+*.pdf

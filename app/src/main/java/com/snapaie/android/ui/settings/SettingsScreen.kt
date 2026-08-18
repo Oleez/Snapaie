@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,7 +31,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -43,6 +43,7 @@ import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.chat.ChatAppearance
 import com.snapaie.android.ui.nav.Routes
 import kotlinx.coroutines.launch
+import com.snapaie.android.core.design.components.ScreenHeader
 
 @Composable
 fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController) {
@@ -62,10 +63,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
-            }
+            ScreenHeader("Settings", onBack = { navController.popBackStack() })
         }
 
         item {
@@ -225,7 +223,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                         value = settings.customInstructions,
                         onValueChange = { scope.launch { prefs.setCustomInstructions(it.take(2000)) } },
                         label = { Text("Custom instructions (Pro)") },
-                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
                     )
                 } else {
                     OutlinedButton(onClick = { navController.navigate(Routes.Upgrade) }) {

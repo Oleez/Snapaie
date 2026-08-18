@@ -34,6 +34,12 @@ data class UserSettings(
     val gemmaLicenseAccepted: Boolean = false,
 )
 
+/** Persisted Library filter state (see LibraryScreen). */
+data class LibraryFilters(
+    val range: String = "All",
+    val sort: String = "Newest",
+)
+
 /** Forge Recall gamification state (ported keys from the extension's lockIn* storage). */
 data class RecallPrefs(
     val xpTotal: Int = 0,
@@ -70,6 +76,10 @@ class AppPreferencesRepository(private val context: Context) {
     private val selectedModelTier = stringPreferencesKey("selected_model_tier")
     private val gemmaLicenseAccepted = booleanPreferencesKey("gemma_license_accepted")
 
+    private val notificationsJsonKey = stringPreferencesKey("notifications_json")
+    private val libraryRange = stringPreferencesKey("library_range")
+    private val librarySort = stringPreferencesKey("library_sort")
+
     private val recallXpTotal = intPreferencesKey("recall_xp_total")
     private val recallStreakDays = intPreferencesKey("recall_streak_days")
     private val recallLastPlayDay = stringPreferencesKey("recall_last_play_day")
@@ -87,6 +97,19 @@ class AppPreferencesRepository(private val context: Context) {
 
     val storedProFallback: Flow<Boolean> = context.preferencesDataStore.data.map {
         it[cachedIsPro] == true
+    }
+
+    /** Serialized in-app notification centre list (see NotificationCenter). */
+    val notificationsJson: Flow<String> = context.preferencesDataStore.data.map {
+        it[notificationsJsonKey].orEmpty()
+    }
+
+    /** Library filter state, so the chosen range/sort survives an app restart. */
+    val libraryFilters: Flow<LibraryFilters> = context.preferencesDataStore.data.map { p ->
+        LibraryFilters(
+            range = p[libraryRange] ?: "All",
+            sort = p[librarySort] ?: "Newest",
+        )
     }
 
     val userSettings: Flow<UserSettings> = context.preferencesDataStore.data.map { p ->
@@ -144,6 +167,9 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setChatAppearance(value: String) = edit { it[chatAppearance] = value }
     suspend fun setSelectedModelTier(value: String) = edit { it[selectedModelTier] = value }
     suspend fun setGemmaLicenseAccepted() = edit { it[gemmaLicenseAccepted] = true }
+    suspend fun setNotificationsJson(value: String) = edit { it[notificationsJsonKey] = value }
+    suspend fun setLibraryRange(value: String) = edit { it[libraryRange] = value }
+    suspend fun setLibrarySort(value: String) = edit { it[librarySort] = value }
 
     suspend fun updateRecall(transform: (RecallPrefs) -> RecallPrefs) {
         context.preferencesDataStore.edit { p ->

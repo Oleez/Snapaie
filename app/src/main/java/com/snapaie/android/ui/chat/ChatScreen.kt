@@ -5,6 +5,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -108,22 +111,32 @@ fun ChatScreen(viewModel: SnapAieViewModel, navController: NavHostController, se
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     session?.title ?: "Chat with ${settings.aeName.ifBlank { "AE" }}",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 val persona = Persona.fromId(session?.persona ?: settings.chatPersona)
-                TextButton(onClick = { showPersonaPicker = !showPersonaPicker }) {
-                    Text("${persona.emoji} ${persona.label} · change")
+                // Zero content padding keeps the persona line optically aligned
+                // with the title above it.
+                TextButton(
+                    onClick = { showPersonaPicker = !showPersonaPicker },
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text(
+                        "${persona.emoji} ${persona.label} · change",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                 }
             }
-            TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
         }
 
         if (showPersonaPicker) {

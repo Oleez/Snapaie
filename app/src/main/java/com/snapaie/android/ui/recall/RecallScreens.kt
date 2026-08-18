@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -61,6 +62,7 @@ import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.nav.Routes
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.snapaie.android.core.design.components.ScreenHeader
 
 private val forgeCardShape = RoundedCornerShape(16.dp)
 
@@ -518,7 +520,7 @@ fun FeynmanScreen(viewModel: SnapAieViewModel, navController: NavHostController,
                     onValueChange = { answer = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
+                        .heightIn(min = 180.dp),
                     label = { Text("Your explanation") },
                 )
                 Button(
@@ -560,10 +562,7 @@ fun VaultScreen(viewModel: SnapAieViewModel, navController: NavHostController) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Vault", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
-            }
+            ScreenHeader("Vault", onBack = { navController.popBackStack() })
         }
         item {
             OutlinedTextField(
