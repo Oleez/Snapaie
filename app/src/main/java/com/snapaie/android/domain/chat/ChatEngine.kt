@@ -4,7 +4,6 @@ import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.local.ChatDao
 import com.snapaie.android.data.local.ChatMessageEntity
 import com.snapaie.android.data.local.ChatSessionEntity
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.preferences.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -41,7 +40,6 @@ class ChatEngine(
         sessionId: Long,
         message: String,
         settings: UserSettings,
-        tier: ModelTier,
         isPro: Boolean,
         originalText: String,
         originalExplanation: String,
@@ -75,7 +73,7 @@ class ChatEngine(
         )
 
         val reply = StringBuilder()
-        sessionManager.stream(prompt, tier).collect { token ->
+        sessionManager.stream(prompt).collect { token ->
             reply.append(token)
             emit(reply.toString())
         }

@@ -221,7 +221,6 @@ fun ChatScreen(viewModel: SnapAieViewModel, navController: NavHostController, se
                                 sessionId = sessionId,
                                 message = message,
                                 settings = settings,
-                                tier = viewModel.selectedTier,
                                 isPro = isPro,
                                 originalText = scan?.sourceText.orEmpty().ifBlank { scan?.sourcePreview.orEmpty() },
                                 originalExplanation = scan?.resultJson.orEmpty().take(4000),

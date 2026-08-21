@@ -37,7 +37,7 @@ import androidx.navigation.NavHostController
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.ThemeMode
 import com.snapaie.android.data.model.ExplainStyle
-import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.ai.model.ModelUpdateStatus
 import com.snapaie.android.domain.chat.Languages
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.chat.ChatAppearance
@@ -235,34 +235,56 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
 
         item {
             SettingsCard("Local model") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ModelTier.entries.forEach { tier ->
-                        val locked = tier == ModelTier.Gemma3nE4B && !isPro
-                        FilterChip(
-                            selected = settings.selectedModelTier == tier.name,
-                            onClick = {
-                                if (locked) navController.navigate(Routes.Upgrade) else viewModel.selectTier(tier)
-                            },
-                            label = { Text(tier.displayName + if (locked) " 🔒" else "") },
-                        )
-                    }
-                }
+                val installed = modelState.installed
                 Text(
-                    if (modelState.isReady) "Model ready — inference runs fully offline." else "Model not downloaded. Scans use instant offline drafts.",
+                    if (installed != null) {
+                        "Installed: ${installed.modelId} ${installed.version} — inference runs fully offline."
+                    } else {
+                        "No model installed. Scans use instant offline drafts."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                viewModel.container.sessionManager.ramWarning(
-                    ModelTier.entries.firstOrNull { it.name == settings.selectedModelTier } ?: ModelTier.Gemma3nE2B,
-                )?.let {
+                when (val status = modelState.updateStatus) {
+                    is ModelUpdateStatus.UpdateAvailable -> Text(
+                        "Update available: ${status.spec.version}. Download it from the Snap tab.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    is ModelUpdateStatus.CheckFailed -> Text(
+                        "Last update check failed: ${status.message}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    is ModelUpdateStatus.Incompatible -> Text(
+                        status.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    is ModelUpdateStatus.NotConfigured -> Text(
+                        "No model manifest is configured in this build.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> Unit
+                }
+                modelState.ramWarning?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Text(
-                    "Gemma is used under Google's Gemma Terms of Use. Weights stay on this device.",
+                    "The model is downloaded separately from the app and stays on this device. It is used under its publisher's licence terms.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = { viewModel.deleteModelWeights() }) { Text("Delete downloaded model") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.checkForModelUpdate() },
+                        enabled = !modelState.isCheckingManifest,
+                    ) {
+                        Text(if (modelState.isCheckingManifest) "Checking…" else "Check for updates")
+                    }
+                    OutlinedButton(onClick = { viewModel.deleteModelWeights() }) { Text("Delete model") }
+                }
             }
         }
 

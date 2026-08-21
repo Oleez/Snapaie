@@ -8,6 +8,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
 import com.snapaie.android.billing.BillingBridge
 import com.snapaie.android.data.ai.ModelRepository
+import com.snapaie.android.data.ai.download.ModelDownloadController
+import com.snapaie.android.data.ai.download.ModelDownloader
+import com.snapaie.android.data.ai.model.ModelManifestRepository
+import com.snapaie.android.data.ai.model.ModelRegistry
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.SnapAieDatabase
@@ -44,9 +48,24 @@ class SnapAieApplication : Application() {
             "snapaie.db",
         ).addMigrations(MIGRATION_1_2).build()
 
+        val httpClient = OkHttpClient.Builder().build()
+        val modelRegistry = ModelRegistry(applicationContext)
+        val manifestRepository = ModelManifestRepository(
+            context = applicationContext,
+            baseClient = httpClient,
+            registry = modelRegistry,
+        )
+        val downloadController = ModelDownloadController(
+            context = applicationContext,
+            registry = modelRegistry,
+            downloader = ModelDownloader(modelRegistry, httpClient),
+        )
         val modelRepository = ModelRepository(
             context = applicationContext,
-            client = OkHttpClient.Builder().build(),
+            registry = modelRegistry,
+            manifestRepository = manifestRepository,
+            downloadController = downloadController,
+            scope = appScope,
         )
         val sessionManager = ModelSessionManager(
             context = applicationContext,
@@ -64,13 +83,14 @@ class SnapAieApplication : Application() {
         container = AppContainer(
             database = database,
             modelRepository = modelRepository,
+            modelRegistry = modelRegistry,
+            modelDownloadController = downloadController,
             sessionManager = sessionManager,
             ocrProcessor = ocrProcessor,
             pdfTextExtractor = PdfTextExtractor(applicationContext, ocrProcessor),
             workflowEngine = WorkflowEngine(
                 context = applicationContext,
                 sessionManager = sessionManager,
-                modelRepository = modelRepository,
             ),
             chatEngine = ChatEngine(sessionManager, database.chatDao()),
             writingEngine = WritingEngine(sessionManager),
@@ -104,6 +124,8 @@ class SnapAieApplication : Application() {
 data class AppContainer(
     val database: SnapAieDatabase,
     val modelRepository: ModelRepository,
+    val modelRegistry: ModelRegistry,
+    val modelDownloadController: ModelDownloadController,
     val sessionManager: ModelSessionManager,
     val ocrProcessor: OcrProcessor,
     val pdfTextExtractor: PdfTextExtractor,

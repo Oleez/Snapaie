@@ -289,7 +289,6 @@ fun RapidFireScreen(viewModel: SnapAieViewModel, navController: NavHostControlle
             val useCloze = XpLedger.rollCloze(XpLedger.levelFor(xp))
             cards = engine.generateRapidCards(
                 topic = t,
-                tier = viewModel.selectedTier,
                 cloze = useCloze,
             ).take(10)
         }
@@ -412,7 +411,7 @@ fun SurvivalScreen(viewModel: SnapAieViewModel, navController: NavHostController
     LaunchedEffect(topicId) {
         val topic = viewModel.container.database.recallDao().getTopic(topicId)
         if (topic != null) {
-            cards = engine.generateRapidCards(topic, viewModel.selectedTier, count = 16)
+            cards = engine.generateRapidCards(topic, count = 16)
             startMillis = System.currentTimeMillis()
         }
         loading = false
@@ -527,7 +526,7 @@ fun FeynmanScreen(viewModel: SnapAieViewModel, navController: NavHostController,
                     onClick = {
                         evaluating = true
                         scope.launch {
-                            val score = engine.evaluateFeynman(current, answer, viewModel.selectedTier)
+                            val score = engine.evaluateFeynman(current, answer)
                             result = score
                             evaluating = false
                             val correct = if (score.score >= 60) 1 else 0

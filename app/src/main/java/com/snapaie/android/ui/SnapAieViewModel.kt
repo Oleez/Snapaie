@@ -12,8 +12,6 @@ import com.snapaie.android.data.local.toDomain
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
-import com.snapaie.android.data.model.ModelSetupState
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ReaderStats
 import com.snapaie.android.data.preferences.UserSettings
@@ -50,7 +48,7 @@ data class ScanUiState(
 class SnapAieViewModel(
     val container: AppContainer,
 ) : ViewModel() {
-    val modelState: StateFlow<ModelSetupState> = container.modelRepository.state
+    val modelState: StateFlow<com.snapaie.android.data.ai.ModelUiState> = container.modelRepository.state
 
     val notificationCenter: NotificationCenter get() = container.notificationCenter
 
@@ -93,27 +91,27 @@ class SnapAieViewModel(
         // A multi-GB download finishes long after the user has left the Snap tab,
         // so it belongs in the notification centre rather than a transient toast.
         viewModelScope.launch {
-            var wasDownloading = false
+            var wasBusy = false
             modelState.collect { state ->
-                if (wasDownloading && state.isReady && !state.isDownloading) {
+                val installedName = state.installed?.let { "${it.modelId} ${it.version}" }
+                if (wasBusy && state.isModelInstalled && !state.isBusy && installedName != null) {
                     container.notificationCenter.push(
-                        message = "${state.selectedTier.displayName} is ready. Every scan from here runs on-device.",
+                        message = "$installedName is ready. Every scan from here runs on-device.",
                         title = "Model ready",
                         kind = NotificationKind.Update,
                     )
                 }
-                wasDownloading = state.isDownloading
+                wasBusy = state.isBusy
             }
         }
+
+        // Low-frequency manifest check so a new model can ship without an app update.
+        container.modelRepository.checkForUpdateIfDue()
     }
 
     private var job: Job? = null
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
-
-    val selectedTier: ModelTier
-        get() = ModelTier.entries.firstOrNull { it.name == settings.value.selectedModelTier }
-            ?: ModelTier.Gemma3nE2B
 
     fun updateStyle(style: ExplainStyle) {
         _uiState.update { it.copy(draft = it.draft.copy(mode = style)) }
@@ -132,13 +130,16 @@ class SnapAieViewModel(
         _uiState.update { it.copy(draft = it.draft.copy(context = context)) }
     }
 
-    fun selectTier(tier: ModelTier) {
-        container.modelRepository.selectTier(tier)
-        viewModelScope.launch { container.appPreferencesRepository.setSelectedModelTier(tier.name) }
+    fun downloadModel() {
+        container.modelRepository.startDownload()
     }
 
-    fun downloadModel() {
-        viewModelScope.launch { container.modelRepository.downloadSelected() }
+    fun pauseModelDownload() = container.modelRepository.pauseDownload()
+
+    fun cancelModelDownload() = container.modelRepository.cancelDownload()
+
+    fun checkForModelUpdate() {
+        viewModelScope.launch { container.modelRepository.checkForUpdate(force = true) }
     }
 
     fun acceptGemmaLicense() {
@@ -207,7 +208,7 @@ class SnapAieViewModel(
             it.copy(phases = emptyList(), streamText = "", result = null, lastSavedScanId = null, isRunning = true)
         }
         job = viewModelScope.launch {
-            container.workflowEngine.run(draft, selectedTier).collect { event ->
+            container.workflowEngine.run(draft).collect { event ->
                 when (event) {
                     is WorkflowEvent.Phase -> _uiState.update { it.copy(phases = it.phases + event.update) }
                     is WorkflowEvent.Token -> _uiState.update { it.copy(streamText = it.streamText + event.value) }
@@ -308,7 +309,7 @@ class SnapAieViewModel(
             val scan = entity.toDomain()
             val source = scan.sourceText.ifBlank { scan.sourcePreview }
             val vocab = runCatching {
-                container.vocabEngine.extract(source, settings.value.outputLanguage, selectedTier)
+                container.vocabEngine.extract(source, settings.value.outputLanguage)
             }.getOrNull()
             if (vocab != null) {
                 dao.update(entity.copy(resultJson = encodeResultJson(scan.result.copy(cefrVocabulary = vocab))))

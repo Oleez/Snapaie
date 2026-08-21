@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Multi-GB model download runs as long-running work with a progress notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -22,6 +29,22 @@
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.snapaie">
+
+        <!-- Pause / Cancel actions on the model download notification. -->
+        <receiver
+            android:name=".data.ai.download.ModelDownloadActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.snapaie.android.action.MODEL_DOWNLOAD_PAUSE" />
+                <action android:name="com.snapaie.android.action.MODEL_DOWNLOAD_CANCEL" />
+            </intent-filter>
+        </receiver>
+
+        <!-- WorkManager's own service, declared with the data-sync foreground type. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -64,7 +64,6 @@ fun WritingScreen(viewModel: SnapAieViewModel, navController: NavHostController)
             runCatching {
                 engine.run(
                     request.copy(variantNonce = nonce, targetLanguage = settings.outputLanguage),
-                    viewModel.selectedTier,
                 ).collect { token -> output += token }
             }
             output = engine.cleanOutput(output)

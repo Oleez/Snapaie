@@ -1,7 +1,6 @@
 package com.snapaie.android.domain.writing
 
 import com.snapaie.android.data.ai.ModelSessionManager
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.domain.chat.Languages
 import com.snapaie.android.domain.scan.JsonRepair
 import kotlinx.coroutines.flow.Flow
@@ -56,8 +55,8 @@ data class WritingRequest(
 
 class WritingEngine(private val sessionManager: ModelSessionManager) {
 
-    fun run(request: WritingRequest, tier: ModelTier): Flow<String> =
-        sessionManager.stream(buildPrompt(request), tier)
+    fun run(request: WritingRequest): Flow<String> =
+        sessionManager.stream(buildPrompt(request))
 
     fun cleanOutput(raw: String): String {
         var s = JsonRepair.stripFences(raw).trim()

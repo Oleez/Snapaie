@@ -36,3 +36,12 @@
 }
 
 -keep public class com.android.vending.billing.**
+
+# Manifest + registry payloads (remote latest.json and on-disk registry.json).
+-keep,includedescriptorclasses class com.snapaie.android.data.ai.model.**$$serializer { *; }
+-keepclassmembers class com.snapaie.android.data.ai.model.** {
+    *** Companion;
+}
+-keep class com.snapaie.android.data.ai.model.ModelManifest { *; }
+-keep class com.snapaie.android.data.ai.model.InstalledModel { *; }
+-keep class com.snapaie.android.data.ai.model.ModelRegistrySnapshot { *; }

@@ -1,6 +1,5 @@
 package com.snapaie.android.data.model
 
-import com.snapaie.android.BuildConfig
 import kotlinx.serialization.Serializable
 
 /**
@@ -187,64 +186,3 @@ data class ReaderStats(
     val wordsIn: Int = 0,
     val wordsOut: Int = 0,
 )
-
-data class ModelSetupState(
-    val selectedTier: ModelTier = ModelTier.Gemma3nE2B,
-    val downloadedBytes: Long = 0L,
-    val totalBytes: Long = ModelTier.Gemma3nE2B.estimatedBytes,
-    val isDownloading: Boolean = false,
-    val isReady: Boolean = false,
-    val warning: String? = null,
-) {
-    val progress: Float
-        get() = if (totalBytes <= 0L) 0f else downloadedBytes.toFloat() / totalBytes.toFloat()
-}
-
-enum class ModelTier(
-    val displayName: String,
-    val fileName: String,
-    val sha256: String,
-    val estimatedBytes: Long,
-    val recommendedRamGb: Int,
-) {
-    Gemma3nE2B(
-        displayName = "Gemma 3n E2B (fast, ~3.1 GB)",
-        fileName = "gemma-3n-E2B-it-int4.litertlm",
-        sha256 = "",
-        estimatedBytes = 3_100_000_000L,
-        recommendedRamGb = 4,
-    ),
-    Gemma3nE4B(
-        displayName = "Gemma 3n E4B (sharper, ~4.4 GB)",
-        fileName = "gemma-3n-E4B-it-int4.litertlm",
-        sha256 = "",
-        estimatedBytes = 4_400_000_000L,
-        recommendedRamGb = 6,
-    ),
-    ;
-
-    /**
-     * Weights are served from a self-hosted mirror (Gemma Terms are shown and accepted
-     * in-app before download). Falls back to the license-gated Hugging Face repo path
-     * when no mirror is configured (dev builds).
-     */
-    val downloadUrl: String
-        get() {
-            val base = BuildConfig.MODEL_MIRROR_BASE_URL.trimEnd('/')
-            return if (base.isNotBlank()) {
-                "$base/$fileName"
-            } else {
-                val repo = when (this) {
-                    Gemma3nE2B -> "litert-community/Gemma-3n-E2B-it-litert-lm"
-                    Gemma3nE4B -> "litert-community/Gemma-3n-E4B-it-litert-lm"
-                }
-                "https://huggingface.co/$repo/resolve/main/$fileName"
-            }
-        }
-}
-
-/** SHA-256 from [gradle.properties] overrides enum defaults when set (release integrity). */
-fun ModelTier.effectiveSha256(): String = when (this) {
-    ModelTier.Gemma3nE2B -> BuildConfig.EXPECTED_MODEL_SHA256_E2B.ifBlank { sha256 }
-    ModelTier.Gemma3nE4B -> BuildConfig.EXPECTED_MODEL_SHA256_E4B.ifBlank { sha256 }
-}

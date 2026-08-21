@@ -1,0 +1,12 @@
+{
+  "modelId": "PLACEHOLDER-model-id",
+  "version": "0.0.0",
+  "filename": "PLACEHOLDER.litertlm",
+  "downloadUrl": "PLACEHOLDER",
+  "sizeBytes": 0,
+  "sha256": "PLACEHOLDER",
+  "runtime": "litert-lm",
+  "runtimeVersion": 1,
+  "minAppVersion": 1,
+  "releaseNotes": ""
+}

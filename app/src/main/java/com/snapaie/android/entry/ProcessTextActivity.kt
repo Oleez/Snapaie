@@ -114,11 +114,8 @@ private fun QuickSnapSheet(
         val draft = BookScanDraft(mode = style, pageText = selectedText, bookTitle = "Selected text")
         job = scope.launch {
             val settings = container.appPreferencesRepository.userSettings.first()
-            val tier = com.snapaie.android.data.model.ModelTier.entries
-                .firstOrNull { it.name == settings.selectedModelTier }
-                ?: com.snapaie.android.data.model.ModelTier.Gemma3nE2B
-            modelMissing = !container.sessionManager.isModelDownloaded(tier)
-            container.workflowEngine.run(draft, tier).collect { event ->
+            modelMissing = !container.sessionManager.isModelInstalled()
+            container.workflowEngine.run(draft).collect { event ->
                 when (event) {
                     is WorkflowEvent.Token -> output += event.value
                     is WorkflowEvent.Result -> {

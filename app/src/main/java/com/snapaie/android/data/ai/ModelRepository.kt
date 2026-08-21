@@ -2,128 +2,166 @@ package com.snapaie.android.data.ai
 
 import android.app.ActivityManager
 import android.content.Context
-import android.os.StatFs
-import com.snapaie.android.data.model.ModelSetupState
-import com.snapaie.android.data.model.ModelTier
-import com.snapaie.android.data.model.effectiveSha256
+import com.snapaie.android.data.ai.download.ModelDownloadController
+import com.snapaie.android.data.ai.download.ModelDownloadState
+import com.snapaie.android.data.ai.download.ModelDownloadStatus
+import com.snapaie.android.data.ai.model.InstalledModel
+import com.snapaie.android.data.ai.model.ModelManifestRepository
+import com.snapaie.android.data.ai.model.ModelRegistry
+import com.snapaie.android.data.ai.model.ModelSpec
+import com.snapaie.android.data.ai.model.ModelUpdateStatus
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
-import java.security.MessageDigest
 
+/** Everything the UI needs to know about the offline model, in one snapshot. */
+data class ModelUiState(
+    val installed: InstalledModel? = null,
+    val updateStatus: ModelUpdateStatus = ModelUpdateStatus.NotConfigured,
+    val download: ModelDownloadState = ModelDownloadState(),
+    val isCheckingManifest: Boolean = false,
+    val ramWarning: String? = null,
+) {
+    /** True once a verified model is on disk — inference can run fully offline. */
+    val isModelInstalled: Boolean get() = installed != null
+
+    val isBusy: Boolean get() = download.status.isActive
+
+    /** The artifact the user can fetch right now, if any. */
+    val downloadableSpec: ModelSpec?
+        get() = when (val status = updateStatus) {
+            is ModelUpdateStatus.FirstInstallAvailable -> status.spec
+            is ModelUpdateStatus.UpdateAvailable -> status.spec
+            else -> null
+        }
+
+    val hasUpdateAvailable: Boolean get() = updateStatus is ModelUpdateStatus.UpdateAvailable
+}
+
+/**
+ * Façade over model delivery: what is installed, what the manifest offers, and the
+ * state of any download. The rest of the app talks to this rather than to the registry,
+ * manifest repository, or download controller directly.
+ */
 class ModelRepository(
     private val context: Context,
-    private val client: OkHttpClient,
+    private val registry: ModelRegistry,
+    private val manifestRepository: ModelManifestRepository,
+    private val downloadController: ModelDownloadController,
+    private val scope: CoroutineScope,
 ) {
-    private val modelsDir = File(context.filesDir, "models").also { it.mkdirs() }
-    private val _state = MutableStateFlow(currentState(ModelTier.Gemma3nE2B))
-    val state: StateFlow<ModelSetupState> = _state
 
-    fun modelFile(tier: ModelTier): File = File(modelsDir, tier.fileName)
+    private val _state = MutableStateFlow(ModelUiState())
+    val state: StateFlow<ModelUiState> = _state.asStateFlow()
 
-    fun selectTier(tier: ModelTier) {
-        _state.value = currentState(tier)
-    }
+    val downloadState: StateFlow<ModelDownloadState> = downloadController.state
 
-    suspend fun downloadSelected() = withContext(Dispatchers.IO) {
-        val tier = _state.value.selectedTier
-        val destination = modelFile(tier)
-        val partial = File(destination.absolutePath + ".part")
-        _state.update { currentState(tier).copy(isDownloading = true) }
-
-        val request = Request.Builder()
-            .url(tier.downloadUrl)
-            .apply {
-                if (partial.exists()) header("Range", "bytes=${partial.length()}-")
-            }
-            .build()
-
-        runCatching {
-            client.newCall(request).execute().use { response ->
-                require(response.isSuccessful || response.code == 206) {
-                    "Download failed with HTTP ${response.code}"
-                }
-                val append = response.code == 206 && partial.exists()
-                if (!append && partial.exists()) partial.delete()
-                val body = requireNotNull(response.body)
-                val total = body.contentLength().takeIf { it > 0L }?.plus(partial.length())
-                    ?: tier.estimatedBytes
-                body.byteStream().use { input ->
-                    FileOutputStream(partial, append).use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            _state.update {
-                                it.copy(
-                                    downloadedBytes = partial.length(),
-                                    totalBytes = total,
-                                    isDownloading = true,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            val expectedSha = tier.effectiveSha256()
-            if (expectedSha.isNotBlank()) {
-                val computed = sha256(partial)
-                require(computed.equals(expectedSha, ignoreCase = true)) {
-                    "Checksum mismatch for ${tier.displayName}. Partial file was removed."
-                }
-            }
-            if (!partial.renameTo(destination)) {
-                partial.copyTo(destination, overwrite = true)
-                partial.delete()
-            }
-            _state.value = currentState(tier)
-        }.onFailure { error ->
-            if (error.message?.contains("Checksum mismatch") == true) {
-                partial.delete()
-            }
-            _state.update {
-                val refreshed = currentState(tier)
-                refreshed.copy(
-                    isDownloading = false,
-                    downloadedBytes = if (partial.exists()) partial.length() else refreshed.downloadedBytes,
-                    warning = "${error.message ?: "Download failed"}. Tap download again.",
-                )
+    init {
+        refreshLocal()
+        // Reflect download progress into the aggregate state, and refresh the install
+        // record the moment a download finishes verifying.
+        scope.launch {
+            downloadController.state.collect { download ->
+                _state.value = _state.value.copy(download = download)
+                if (download.status == ModelDownloadStatus.COMPLETED) refreshLocal()
             }
         }
     }
 
-    /** Removes downloaded weights and any partial files (settings reset / free space). */
-    suspend fun deleteAllWeights() = withContext(Dispatchers.IO) {
-        modelsDir.listFiles()?.forEach { it.delete() }
-        _state.value = currentState(_state.value.selectedTier)
-    }
+    /** The verified model the engine should load, or null when nothing is installed. */
+    fun activeRecord(): InstalledModel? = registry.activeRecord()
 
-    private fun currentState(tier: ModelTier): ModelSetupState {
-        val file = modelFile(tier)
-        val freeBytes = StatFs(modelsDir.absolutePath).availableBytes
-        val ramGb = totalRamGb()
-        val warnings = buildList {
-            if (freeBytes < tier.estimatedBytes + 1_000_000_000L) {
-                add("Storage is tight for ${tier.displayName}. Free at least 1 GB beyond the model.")
-            }
-            if (ramGb < tier.recommendedRamGb) {
-                add("This device reports about ${ramGb} GB RAM; ${tier.recommendedRamGb} GB is recommended.")
-            }
-        }
-        return ModelSetupState(
-            selectedTier = tier,
-            downloadedBytes = if (file.exists()) file.length() else 0L,
-            totalBytes = tier.estimatedBytes,
-            isReady = file.exists(),
-            warning = warnings.firstOrNull(),
+    fun activeModelFile(): File? = registry.activeRecord()?.let { registry.modelFile(it) }
+
+    fun isModelInstalled(): Boolean = registry.activeRecord() != null
+
+    /** Re-reads local install state without touching the network. */
+    fun refreshLocal() {
+        val installed = registry.activeRecord()
+        _state.value = _state.value.copy(
+            installed = installed,
+            ramWarning = ramWarning(),
         )
+    }
+
+    /**
+     * Checks the manifest and updates [state]. Never throws; if the check fails the
+     * installed model keeps working and the status records why.
+     */
+    suspend fun checkForUpdate(force: Boolean = false) {
+        if (!manifestRepository.isConfigured) {
+            _state.value = _state.value.copy(updateStatus = ModelUpdateStatus.NotConfigured)
+            return
+        }
+        _state.value = _state.value.copy(isCheckingManifest = true)
+        val status = withContext(Dispatchers.IO) { manifestRepository.checkForUpdate(force) }
+        _state.value = _state.value.copy(
+            updateStatus = status,
+            installed = registry.activeRecord(),
+            isCheckingManifest = false,
+        )
+        // Let the controller reattach to any partial download for the offered artifact.
+        downloadController.reconcile(_state.value.downloadableSpec)
+    }
+
+    /**
+     * Safe to call on every app start: [checkForUpdate] hits the network only when the
+     * throttle window has elapsed, and otherwise resolves the cached manifest so the UI
+     * still knows what is available offline.
+     */
+    fun checkForUpdateIfDue() {
+        scope.launch { checkForUpdate(force = false) }
+    }
+
+    /** Starts (or resumes) the download of the currently offered artifact. */
+    fun startDownload(): Boolean {
+        val spec = _state.value.downloadableSpec ?: return false
+        downloadController.start(spec)
+        return true
+    }
+
+    fun pauseDownload() = downloadController.pause()
+
+    fun cancelDownload() {
+        downloadController.cancel(_state.value.downloadableSpec)
+    }
+
+    /**
+     * Called by the session manager once the engine has actually loaded an artifact.
+     * Only now does the new model become active and older versions get removed.
+     */
+    fun onModelLoadSucceeded(modelId: String, version: String) {
+        registry.promoteToActive(modelId, version)
+        refreshLocal()
+    }
+
+    /**
+     * Rollback: the engine could not load this artifact. It is deleted and the previously
+     * active model is left untouched.
+     */
+    fun onModelLoadFailed(modelId: String, version: String) {
+        registry.rejectInstall(modelId, version)
+        refreshLocal()
+    }
+
+    /** Wipes all downloaded artifacts (factory reset / free space). */
+    suspend fun deleteAllWeights() = withContext(Dispatchers.IO) {
+        registry.clearAll()
+        refreshLocal()
+    }
+
+    private fun ramWarning(): String? {
+        val totalGb = totalRamGb()
+        return if (totalGb < MIN_COMFORTABLE_RAM_GB) {
+            "This device reports about $totalGb GB RAM. On-device AI may be slow or unstable here."
+        } else {
+            null
+        }
     }
 
     private fun totalRamGb(): Int {
@@ -133,16 +171,7 @@ class ModelRepository(
         return (memoryInfo.totalMem / 1_000_000_000L).toInt().coerceAtLeast(1)
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read == -1) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+    private companion object {
+        const val MIN_COMFORTABLE_RAM_GB = 4
     }
 }

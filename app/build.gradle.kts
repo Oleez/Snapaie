@@ -7,15 +7,11 @@ plugins {
 }
 
 @Suppress("DEPRECATION")
-val shaE2B = (project.findProperty("snapaie.model.sha256.e2b") as String?)?.trim().orEmpty()
-@Suppress("DEPRECATION")
-val shaE4B = (project.findProperty("snapaie.model.sha256.e4b") as String?)?.trim().orEmpty()
-@Suppress("DEPRECATION")
 val billingLifetime =
     (project.findProperty("snapaie.billing.lifetime.id") as String?) ?: "snapaie_pro_lifetime"
 @Suppress("DEPRECATION")
-val modelMirrorBase =
-    (project.findProperty("snapaie.model.mirror.base.url") as String?)?.trim().orEmpty()
+val modelManifestUrl =
+    (project.findProperty("snapaie.model.manifest.url") as String?)?.trim().orEmpty()
 
 android {
     namespace = "com.snapaie.android"
@@ -30,10 +26,8 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        buildConfigField("String", "EXPECTED_MODEL_SHA256_E2B", "\"$shaE2B\"")
-        buildConfigField("String", "EXPECTED_MODEL_SHA256_E4B", "\"$shaE4B\"")
         buildConfigField("String", "BILLING_PRODUCT_LIFETIME", "\"$billingLifetime\"")
-        buildConfigField("String", "MODEL_MIRROR_BASE_URL", "\"$modelMirrorBase\"")
+        buildConfigField("String", "MODEL_MANIFEST_URL", "\"$modelManifestUrl\"")
     }
 
     buildTypes {
@@ -108,6 +102,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)

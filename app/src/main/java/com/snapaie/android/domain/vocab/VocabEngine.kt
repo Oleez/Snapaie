@@ -3,7 +3,6 @@ package com.snapaie.android.domain.vocab
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.model.CefrVocab
 import com.snapaie.android.data.model.CefrWord
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.domain.chat.Languages
 import com.snapaie.android.domain.scan.JsonRepair
 import kotlinx.serialization.Serializable
@@ -14,7 +13,7 @@ class VocabEngine(private val sessionManager: ModelSessionManager) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     /** CEFR extraction ported verbatim from the extension (popup.js:29345). */
-    suspend fun extract(text: String, languageCode: String, tier: ModelTier): CefrVocab? {
+    suspend fun extract(text: String, languageCode: String): CefrVocab? {
         val langName = Languages.nameFor(languageCode)
         val prompt = """
 You are an expert in CEFR vocabulary levels. Assign words from the text to B2, C1, or C2.
@@ -56,7 +55,7 @@ Text to analyze:
 ${text.take(2000)}
         """.trimIndent()
 
-        val raw = sessionManager.generate(prompt, tier)
+        val raw = sessionManager.generate(prompt)
         for (candidate in JsonRepair.candidates(raw)) {
             val parsed = runCatching { json.decodeFromString<CefrPayload>(candidate) }.getOrNull()
             if (parsed != null && (parsed.B2.isNotEmpty() || parsed.C1.isNotEmpty() || parsed.C2.isNotEmpty())) {

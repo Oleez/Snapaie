@@ -3,7 +3,6 @@ package com.snapaie.android.domain.recall
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.local.PracticeTopicEntity
 import com.snapaie.android.data.local.RecallDao
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.preferences.AppPreferencesRepository
 import com.snapaie.android.data.preferences.RecallPrefs
 import com.snapaie.android.domain.scan.JsonRepair
@@ -151,7 +150,6 @@ class RecallEngine(
 
     suspend fun generateRapidCards(
         topic: PracticeTopicEntity,
-        tier: ModelTier,
         count: Int = 10,
         cloze: Boolean = false,
         priorTopic: PracticeTopicEntity? = null,
@@ -214,7 +212,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
                 append(priorTopic.content.take(3000))
             }
         }
-        val raw = sessionManager.generate(prompt, tier)
+        val raw = sessionManager.generate(prompt)
         for (candidate in JsonRepair.candidates(raw, arrayWrapKey = "questions")) {
             val parsed = runCatching { json.decodeFromString<QuestionsPayload>(candidate) }.getOrNull()
             if (parsed != null && parsed.questions.isNotEmpty()) {
@@ -224,7 +222,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
         return emptyList()
     }
 
-    suspend fun generateFlashcards(topic: PracticeTopicEntity, tier: ModelTier, count: Int = 8): List<Flashcard> {
+    suspend fun generateFlashcards(topic: PracticeTopicEntity, count: Int = 8): List<Flashcard> {
         val prompt = buildString {
             appendLine("You create practice material for a learning product.")
             appendLine("Primary topic title: ${topic.title}")
@@ -242,7 +240,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
             appendLine("PRIMARY source material:")
             append(topic.content.take(4000))
         }
-        val raw = sessionManager.generate(prompt, tier)
+        val raw = sessionManager.generate(prompt)
         for (candidate in JsonRepair.candidates(raw, arrayWrapKey = "flashcards")) {
             val parsed = runCatching { json.decodeFromString<FlashcardsPayload>(candidate) }.getOrNull()
             if (parsed != null && parsed.flashcards.isNotEmpty()) return parsed.flashcards
@@ -254,7 +252,6 @@ Generate $count cloze-style True/False statements: the statement should contain 
     suspend fun evaluateFeynman(
         topic: PracticeTopicEntity,
         userAnswer: String,
-        tier: ModelTier,
     ): FeynmanScore {
         val prompt = buildString {
             appendLine("You are evaluating a user's explanation of a concept (Feynman-style).")
@@ -279,7 +276,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
             appendLine("USER ANSWER:")
             append(userAnswer.take(4000))
         }
-        val raw = sessionManager.generate(prompt, tier)
+        val raw = sessionManager.generate(prompt)
         for (candidate in JsonRepair.candidates(raw)) {
             val parsed = runCatching { json.decodeFromString<FeynmanScore>(candidate) }.getOrNull()
             if (parsed != null) return parsed.copy(score = parsed.score.coerceIn(0, 100))

@@ -1,11 +1,9 @@
 package com.snapaie.android.domain.scan
 
 import android.content.Context
-import com.snapaie.android.data.ai.ModelRepository
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.KnowledgeResult
-import com.snapaie.android.data.model.ModelTier
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import kotlinx.coroutines.TimeoutCancellationException
@@ -16,16 +14,15 @@ import kotlinx.coroutines.withTimeout
 class WorkflowEngine(
     private val context: Context,
     private val sessionManager: ModelSessionManager,
-    private val modelRepository: ModelRepository,
 ) {
     private val parser = StructuredOutputParser()
     private val prompts = PromptLibrary(context)
 
-    fun run(draft: BookScanDraft, tier: ModelTier): Flow<WorkflowEvent> = flow {
+    fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Capture, "Page text captured.", isComplete = true)))
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "OCR text ready for compression.", isComplete = true)))
 
-        if (!modelRepository.modelFile(tier).exists()) {
+        if (!sessionManager.isModelInstalled()) {
             emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Instant offline draft — download the model for full AI.", isComplete = true)))
             emit(WorkflowEvent.Result(finalize(draft, parser.heuristicOnly(draft)), fromModel = false))
             return@flow
@@ -33,7 +30,7 @@ class WorkflowEngine(
 
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Compressing meaning with on-device Gemma…")))
 
-        var attempt = streamOnce(prompts.buildScanPrompt(draft), tier) { token ->
+        var attempt = streamOnce(prompts.buildScanPrompt(draft)) { token ->
             emit(WorkflowEvent.Token(token))
         }
 
@@ -44,7 +41,7 @@ class WorkflowEngine(
         if (outcome is ParseOutcome.Unparseable && attempt.text.isNotBlank()) {
             // Repair pass: one retry with a stricter JSON-only prompt.
             emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.ClarityCheck, "Tightening the output format…")))
-            val retry = streamOnce(prompts.buildRepairPrompt(draft, attempt.text), tier) { }
+            val retry = streamOnce(prompts.buildRepairPrompt(draft, attempt.text)) { }
             val retryOutcome = parser.parse(retry.text)
             if (retryOutcome is ParseOutcome.Structured) {
                 outcome = retryOutcome
@@ -66,14 +63,13 @@ class WorkflowEngine(
     /** Collects one full model stream (with timeout), forwarding tokens to [onToken]. */
     private suspend fun streamOnce(
         prompt: String,
-        tier: ModelTier,
         onToken: suspend (String) -> Unit,
     ): StreamAttempt {
         val accumulated = StringBuilder()
         var timeoutReason: String? = null
         try {
             withTimeout(INFERENCE_TIMEOUT_MS) {
-                sessionManager.stream(prompt, tier).collect { token ->
+                sessionManager.stream(prompt).collect { token ->
                     accumulated.append(token)
                     if (token.isNotBlank()) onToken(token)
                 }

@@ -65,7 +65,9 @@ import com.snapaie.android.data.local.KnowledgeScan
 import com.snapaie.android.data.model.CefrVocab
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
-import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.ai.download.ModelDownloadState
+import com.snapaie.android.data.ai.download.ModelDownloadStatus
+import com.snapaie.android.data.ai.model.ModelUpdateStatus
 import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.ui.SnapAieViewModel
@@ -123,7 +125,7 @@ fun ScanHubScreen(
             }
         }
 
-        item { ModelSetupCard(viewModel, modelState.selectedTier, settings.gemmaLicenseAccepted) }
+        item { ModelSetupCard(viewModel, settings.gemmaLicenseAccepted) }
 
         item {
             LiquidGlassSurface {
@@ -235,61 +237,139 @@ fun ScanHubScreen(
 }
 
 @Composable
-private fun ModelSetupCard(viewModel: SnapAieViewModel, selectedTier: ModelTier, licenseAccepted: Boolean) {
+private fun ModelSetupCard(viewModel: SnapAieViewModel, licenseAccepted: Boolean) {
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
-    if (modelState.isReady) return
+    val download = modelState.download
+    val spec = modelState.downloadableSpec
     var showLicense by remember { mutableStateOf(false) }
+
+    // Nothing to show once a model is installed and no newer one is offered.
+    if (modelState.isModelInstalled && !modelState.hasUpdateAvailable && !download.status.isActive) return
+
     LiquidGlassSurface {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Enable full on-device AI", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Download Gemma once (${formatBytes(selectedTier.estimatedBytes)}) and every scan runs entirely on this phone — airplane mode included. Until then you get instant offline drafts.",
+                if (modelState.hasUpdateAvailable) "A newer offline model is available" else "Enable full on-device AI",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                when {
+                    spec != null && modelState.hasUpdateAvailable ->
+                        "${spec.modelId} ${spec.version} (${formatBytes(spec.expectedBytes)}). Your current model keeps working until the new one is verified."
+                    spec != null ->
+                        "Download ${spec.modelId} ${spec.version} once (${formatBytes(spec.expectedBytes)}) and every scan runs entirely on this phone — airplane mode included. Until then you get instant offline drafts."
+                    else -> modelStatusMessage(modelState.updateStatus)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ModelTier.entries.forEach { tier ->
-                    FilterChip(
-                        selected = selectedTier == tier,
-                        onClick = { viewModel.selectTier(tier) },
-                        label = { Text(if (tier == ModelTier.Gemma3nE2B) "Fast (3.1 GB)" else "Sharper (4.4 GB)") },
-                    )
-                }
+            spec?.releaseNotes?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
             }
-            modelState.warning?.let {
+            modelState.ramWarning?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
-            if (modelState.isDownloading) {
-                LinearProgressIndicator(
-                    progress = { modelState.progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "${formatBytes(modelState.downloadedBytes)} / ${formatBytes(modelState.totalBytes)} — resumable, keep the app open",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else if (!showLicense && !licenseAccepted) {
-                Button(onClick = { showLicense = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Download model")
+
+            when {
+                download.status.isActive -> {
+                    LinearProgressIndicator(
+                        progress = { download.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        downloadProgressLabel(download),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Keep downloading in the background — you can leave the app.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { viewModel.pauseModelDownload() }) { Text("Pause") }
+                        TextButton(onClick = { viewModel.cancelModelDownload() }) { Text("Cancel") }
+                    }
                 }
-            } else if (showLicense && !licenseAccepted) {
-                Text(
-                    "Gemma is provided under Google's Gemma Terms of Use (ai.google.dev/gemma/terms). By downloading you agree to those terms. The model runs only on your device.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        viewModel.acceptGemmaLicense()
-                        viewModel.downloadModel()
-                    }) { Text("Agree & download") }
-                    TextButton(onClick = { showLicense = false }) { Text("Not now") }
+
+                download.isResumable -> {
+                    LinearProgressIndicator(
+                        progress = { download.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    download.errorMessage?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        "${formatBytes(download.downloadedBytes)} of ${formatBytes(download.totalBytes)} saved.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.downloadModel() }) { Text("Resume download") }
+                        TextButton(onClick = { viewModel.cancelModelDownload() }) { Text("Discard") }
+                    }
                 }
-            } else {
-                Button(onClick = { viewModel.downloadModel() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Download model")
+
+                spec == null -> {
+                    OutlinedButton(onClick = { viewModel.checkForModelUpdate() }) { Text("Check again") }
+                }
+
+                !licenseAccepted && !showLicense -> {
+                    Button(onClick = { showLicense = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Download model")
+                    }
+                }
+
+                !licenseAccepted -> {
+                    Text(
+                        "This model is provided under its publisher's licence terms, shown at the download source. By downloading you agree to those terms. The model runs only on your device.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            viewModel.acceptGemmaLicense()
+                            viewModel.downloadModel()
+                        }) { Text("Agree & download") }
+                        TextButton(onClick = { showLicense = false }) { Text("Not now") }
+                    }
+                }
+
+                else -> {
+                    Button(onClick = { viewModel.downloadModel() }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (modelState.hasUpdateAvailable) "Download update" else "Download model")
+                    }
+                }
+            }
+
+            if (download.status == ModelDownloadStatus.FAILED && !download.isResumable) {
+                download.errorMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+    }
+}
+
+private fun modelStatusMessage(status: ModelUpdateStatus): String = when (status) {
+    is ModelUpdateStatus.NotConfigured ->
+        "Offline AI is not configured in this build yet. Scans use instant offline drafts."
+    is ModelUpdateStatus.CheckFailed ->
+        "${status.message} Your installed model keeps working."
+    is ModelUpdateStatus.Unavailable -> status.message
+    is ModelUpdateStatus.Incompatible -> status.message
+    is ModelUpdateStatus.UpToDate ->
+        "You have the current model (${status.installed.modelId} ${status.installed.version})."
+    else -> "Checking for the current model…"
+}
+
+private fun downloadProgressLabel(download: ModelDownloadState): String = when (download.status) {
+    ModelDownloadStatus.CHECKING -> "Checking…"
+    ModelDownloadStatus.PREPARING -> "Preparing…"
+    ModelDownloadStatus.VERIFYING -> "Verifying integrity…"
+    ModelDownloadStatus.INSTALLING -> "Installing…"
+    else -> buildString {
+        append("${formatBytes(download.downloadedBytes)} / ${formatBytes(download.totalBytes)}")
+        append(" · ${download.percent}%")
+        if (download.bytesPerSecond > 0L) append(" · ${formatBytes(download.bytesPerSecond)}/s")
     }
 }
 

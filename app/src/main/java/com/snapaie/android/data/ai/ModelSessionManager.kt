@@ -5,7 +5,7 @@ import android.content.Context
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
-import com.snapaie.android.data.model.ModelTier
+import com.snapaie.android.data.ai.model.InstalledModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,16 +24,22 @@ import kotlinx.coroutines.withContext
 
 sealed interface ModelSessionState {
     data object Unloaded : ModelSessionState
-    data class Loading(val tier: ModelTier) : ModelSessionState
-    data class Ready(val tier: ModelTier) : ModelSessionState
+    data class Loading(val label: String) : ModelSessionState
+    data class Ready(val label: String) : ModelSessionState
     data class Error(val message: String) : ModelSessionState
 }
 
+/** Raised when no verified model is installed yet. */
+class ModelNotInstalledException : IllegalStateException("No verified model is installed.")
+
 /**
- * Owns the LiteRT-LM engine lifecycle (PDF "model lifecycle — critical" rules):
- * lazy-load on first inference, unload after 60s idle, unload on memory trim and
- * when the app leaves the foreground, and single-flight all inference behind a
- * mutex so concurrent callers queue instead of racing the engine.
+ * Owns the LiteRT-LM engine lifecycle: lazy-load on first inference, unload after 60s
+ * idle, unload on memory trim and when the app leaves the foreground, and single-flight
+ * all inference behind a mutex so concurrent callers queue instead of racing the engine.
+ *
+ * It is also the gate that proves a freshly downloaded model actually works: the first
+ * successful load promotes it to active (retiring older versions), and a failed load
+ * rolls it back so the previously working model keeps serving.
  */
 class ModelSessionManager(
     private val context: Context,
@@ -42,36 +48,37 @@ class ModelSessionManager(
 ) {
     private val mutex = Mutex()
     private var engine: Engine? = null
-    private var loadedTier: ModelTier? = null
+    private var loadedKey: String? = null
     private var idleUnloadJob: Job? = null
-    @Volatile private var streaming = false
+
+    @Volatile
+    private var streaming = false
 
     private val _state = MutableStateFlow<ModelSessionState>(ModelSessionState.Unloaded)
     val state: StateFlow<ModelSessionState> = _state.asStateFlow()
 
-    fun isModelDownloaded(tier: ModelTier): Boolean = modelRepository.modelFile(tier).exists()
+    fun isModelInstalled(): Boolean = modelRepository.isModelInstalled()
 
-    /** RAM gate per PDF: warn below ~4GB total, steer away from the larger tier below 6GB. */
-    fun ramWarning(tier: ModelTier): String? {
+    /** RAM gate: warn on devices that will struggle with a multi-GB model. */
+    fun ramWarning(): String? {
         val totalGb = totalRamGb()
-        return when {
-            totalGb < 4 -> "This device reports ${totalGb} GB RAM. On-device AI may be unstable; the smaller model is strongly recommended."
-            tier == ModelTier.Gemma3nE4B && totalGb < 6 ->
-                "The larger model needs about 6 GB RAM; this device reports ${totalGb} GB. Use the smaller model instead."
-            else -> null
+        return if (totalGb < MIN_COMFORTABLE_RAM_GB) {
+            "This device reports $totalGb GB RAM. On-device AI may be unstable here."
+        } else {
+            null
         }
     }
 
     /**
      * Streams raw model output for [prompt]. Single-flight: concurrent calls queue.
-     * The flow completes when generation ends; cancelling the collector cancels generation.
+     * Cancelling the collector cancels generation.
      */
-    fun stream(prompt: String, tier: ModelTier): Flow<String> = channelFlow {
+    fun stream(prompt: String): Flow<String> = channelFlow {
         mutex.withLock {
             idleUnloadJob?.cancel()
             streaming = true
             try {
-                val active = ensureEngine(tier)
+                val active = ensureEngine()
                 active.createConversation().use { conversation ->
                     conversation.sendMessageAsync(prompt)
                         .catch { error -> send("\nLiteRT-LM stream error: ${error.message}") }
@@ -85,9 +92,9 @@ class ModelSessionManager(
     }.flowOn(Dispatchers.IO)
 
     /** Convenience non-streaming generation (chat/writing/vocab/recall engines). */
-    suspend fun generate(prompt: String, tier: ModelTier): String {
+    suspend fun generate(prompt: String): String {
         val builder = StringBuilder()
-        stream(prompt, tier).collect { builder.append(it) }
+        stream(prompt).collect { builder.append(it) }
         return builder.toString()
     }
 
@@ -112,32 +119,56 @@ class ModelSessionManager(
         }
     }
 
-    private suspend fun ensureEngine(tier: ModelTier): Engine {
+    private suspend fun ensureEngine(): Engine {
+        val record = modelRepository.activeRecord() ?: throw ModelNotInstalledException()
+        val key = "${record.modelId}@${record.version}"
         val current = engine
-        if (current != null && loadedTier == tier) return current
+        if (current != null && loadedKey == key) return current
+
         closeEngine()
-        _state.value = ModelSessionState.Loading(tier)
+        val label = "${record.modelId} ${record.version}"
+        _state.value = ModelSessionState.Loading(label)
+
+        val file = modelRepository.activeModelFile()
+        if (file == null || !file.isFile) {
+            modelRepository.onModelLoadFailed(record.modelId, record.version)
+            _state.value = ModelSessionState.Error("Model file is missing.")
+            throw ModelNotInstalledException()
+        }
+
         return withContext(Dispatchers.IO) {
             runCatching {
                 Engine(
                     EngineConfig(
-                        modelPath = modelRepository.modelFile(tier).absolutePath,
+                        modelPath = file.absolutePath,
                         backend = Backend.GPU(),
                         cacheDir = context.cacheDir.absolutePath,
                     ),
                 ).also { it.initialize() }
             }.fold(
-                onSuccess = {
-                    engine = it
-                    loadedTier = tier
-                    _state.value = ModelSessionState.Ready(tier)
-                    it
+                onSuccess = { created ->
+                    engine = created
+                    loadedKey = key
+                    _state.value = ModelSessionState.Ready(label)
+                    // Proven loadable: promote it and retire older versions.
+                    promoteIfNeeded(record)
+                    created
                 },
                 onFailure = { error ->
-                    _state.value = ModelSessionState.Error(error.message ?: "Model failed to load.")
+                    // Rollback: discard this artifact so the previous model keeps serving.
+                    modelRepository.onModelLoadFailed(record.modelId, record.version)
+                    _state.value = ModelSessionState.Error(
+                        error.message ?: "The model failed to load and was removed.",
+                    )
                     throw IllegalStateException("LiteRT-LM engine failed to initialize", error)
                 },
             )
+        }
+    }
+
+    private fun promoteIfNeeded(record: InstalledModel) {
+        if (!record.loadVerified) {
+            modelRepository.onModelLoadSucceeded(record.modelId, record.version)
         }
     }
 
@@ -152,7 +183,7 @@ class ModelSessionManager(
     private fun closeEngine() {
         runCatching { engine?.close() }
         engine = null
-        loadedTier = null
+        loadedKey = null
         _state.value = ModelSessionState.Unloaded
     }
 
@@ -165,5 +196,6 @@ class ModelSessionManager(
 
     private companion object {
         const val IDLE_UNLOAD_MS = 60_000L
+        const val MIN_COMFORTABLE_RAM_GB = 4
     }
 }

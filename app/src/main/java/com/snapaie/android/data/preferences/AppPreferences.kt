@@ -30,7 +30,6 @@ data class UserSettings(
     val customInstructions: String = "",
     val chatPersona: String = "auto",
     val chatAppearance: String = "Classic",
-    val selectedModelTier: String = "Gemma3nE2B",
     val gemmaLicenseAccepted: Boolean = false,
 )
 
@@ -73,7 +72,6 @@ class AppPreferencesRepository(private val context: Context) {
     private val customInstructions = stringPreferencesKey("custom_instructions")
     private val chatPersona = stringPreferencesKey("chat_persona")
     private val chatAppearance = stringPreferencesKey("chat_appearance")
-    private val selectedModelTier = stringPreferencesKey("selected_model_tier")
     private val gemmaLicenseAccepted = booleanPreferencesKey("gemma_license_accepted")
 
     private val notificationsJsonKey = stringPreferencesKey("notifications_json")
@@ -128,7 +126,6 @@ class AppPreferencesRepository(private val context: Context) {
             customInstructions = p[customInstructions].orEmpty(),
             chatPersona = p[chatPersona] ?: "auto",
             chatAppearance = p[chatAppearance] ?: "Classic",
-            selectedModelTier = p[selectedModelTier] ?: "Gemma3nE2B",
             gemmaLicenseAccepted = p[gemmaLicenseAccepted] == true,
         )
     }
@@ -165,7 +162,6 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setCustomInstructions(value: String) = edit { it[customInstructions] = value }
     suspend fun setChatPersona(value: String) = edit { it[chatPersona] = value }
     suspend fun setChatAppearance(value: String) = edit { it[chatAppearance] = value }
-    suspend fun setSelectedModelTier(value: String) = edit { it[selectedModelTier] = value }
     suspend fun setGemmaLicenseAccepted() = edit { it[gemmaLicenseAccepted] = true }
     suspend fun setNotificationsJson(value: String) = edit { it[notificationsJsonKey] = value }
     suspend fun setLibraryRange(value: String) = edit { it[libraryRange] = value }
