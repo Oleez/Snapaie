@@ -100,14 +100,51 @@
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/*" />
                 <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="image/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
+            <!--
+                Door 3: "Open with" from a file manager or Drive.
+
+                Three filters rather than one because Android matches ACTION_VIEW on the
+                MIME type the *provider* claims, and providers disagree constantly: some
+                report application/epub+zip, plenty report application/octet-stream, and a
+                few report nothing useful at all. The path-pattern filter is the fallback
+                for those, and it needs the escaped variants because a content URI may
+                arrive with dots percent-encoded.
+            -->
+            <intent-filter android:label="@string/open_with_label">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+            <intent-filter android:label="@string/open_with_label">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\.epub" />
+                <data android:pathPattern=".*\..*\.epub" />
+                <data android:pathPattern=".*\.pdf" />
+                <data android:pathPattern=".*\..*\.pdf" />
+                <data android:pathPattern=".*%2Eepub" />
+                <data android:pathPattern=".*%2Epdf" />
             </intent-filter>
         </activity>
     </application>

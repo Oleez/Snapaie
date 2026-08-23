@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">snapaie</string>
+    <string name="open_with_label">Condense with snapaie</string>
     <string name="onboarding_next">Continue</string>
     <string name="onboarding_get_started">Enter snapaie</string>
     <string name="onboarding_headline_snap">Snap dense pages.</string>

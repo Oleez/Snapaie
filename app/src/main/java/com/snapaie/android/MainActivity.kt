@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.snapaie.android.data.model.BookSourceKind
 import com.snapaie.android.ui.SnapAieApp
 import com.snapaie.android.ui.nav.Routes
 
@@ -53,11 +54,21 @@ class MainActivity : ComponentActivity() {
             return IngestRequest.Content(text = it)
         }
         intent.getStringExtra(EXTRA_SHARED_URI)?.let { uriString ->
+            val kind = BookSourceKind.fromStored(intent.getStringExtra(EXTRA_SHARED_KIND))
             return IngestRequest.Content(
                 uri = Uri.parse(uriString),
                 isPdf = intent.getBooleanExtra(EXTRA_SHARED_IS_PDF, false),
+                kind = kind,
+                displayName = intent.getStringExtra(EXTRA_SHARED_NAME).orEmpty(),
+                sizeBytes = intent.getLongExtra(EXTRA_SHARED_SIZE, 0L),
+                looksLikeBook = intent.getBooleanExtra(EXTRA_SHARED_IS_BOOK, false),
             )
         }
+        intent.getStringArrayListExtra(EXTRA_SHARED_PAGE_URIS)
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { uris ->
+                return IngestRequest.Content(pageUris = uris.map(Uri::parse))
+            }
         return null
     }
 
@@ -66,6 +77,11 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_SHARED_TEXT = "snapaie.extra.sharedText"
         const val EXTRA_SHARED_URI = "snapaie.extra.sharedUri"
         const val EXTRA_SHARED_IS_PDF = "snapaie.extra.sharedIsPdf"
+        const val EXTRA_SHARED_KIND = "snapaie.extra.sharedKind"
+        const val EXTRA_SHARED_NAME = "snapaie.extra.sharedName"
+        const val EXTRA_SHARED_SIZE = "snapaie.extra.sharedSize"
+        const val EXTRA_SHARED_IS_BOOK = "snapaie.extra.sharedIsBook"
+        const val EXTRA_SHARED_PAGE_URIS = "snapaie.extra.sharedPageUris"
     }
 }
 
@@ -75,5 +91,15 @@ sealed interface IngestRequest {
         val text: String? = null,
         val uri: Uri? = null,
         val isPdf: Boolean = false,
+        val kind: BookSourceKind = BookSourceKind.TEXT,
+        val displayName: String = "",
+        val sizeBytes: Long = 0L,
+        /**
+         * Big enough that the user probably meant the whole-book flow. Only a hint — the
+         * routing sheet still asks, because the two paths differ by hours.
+         */
+        val looksLikeBook: Boolean = false,
+        /** Several images shared at once: a stack of pages in the order they arrived. */
+        val pageUris: List<Uri> = emptyList(),
     ) : IngestRequest
 }

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <!-- Camera captures and share-card PNGs. -->
     <cache-path
         name="captures"
         path="." />
+
+    <!-- Exported books, so a finished PDF or EPUB can be shared or saved to Files. -->
+    <files-path
+        name="books"
+        path="books/" />
 </paths>
