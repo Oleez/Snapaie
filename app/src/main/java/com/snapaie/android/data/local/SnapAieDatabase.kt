@@ -24,8 +24,14 @@ import kotlinx.serialization.json.Json
         ChatMessageEntity::class,
         PracticeTopicEntity::class,
         NoteEntity::class,
+        BookEntity::class,
+        BookChapterEntity::class,
+        BookBeatEntity::class,
+        BookAssetEntity::class,
+        CondenseJobEntity::class,
+        BookExportEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class SnapAieDatabase : RoomDatabase() {
@@ -33,6 +39,10 @@ abstract class SnapAieDatabase : RoomDatabase() {
     abstract fun chatDao(): ChatDao
     abstract fun recallDao(): RecallDao
     abstract fun noteDao(): NoteDao
+    abstract fun bookDao(): BookDao
+    abstract fun condenseDao(): CondenseDao
+    abstract fun bookAssetDao(): BookAssetDao
+    abstract fun bookExportDao(): BookExportDao
 }
 
 // region Scans

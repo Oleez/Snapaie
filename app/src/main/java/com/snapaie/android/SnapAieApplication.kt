@@ -14,6 +14,7 @@ import com.snapaie.android.data.ai.model.ModelManifestRepository
 import com.snapaie.android.data.ai.model.ModelRegistry
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.local.MIGRATION_1_2
+import com.snapaie.android.data.local.MIGRATION_2_3
 import com.snapaie.android.data.local.SnapAieDatabase
 import com.snapaie.android.data.ocr.OcrProcessor
 import com.snapaie.android.data.pdf.PdfTextExtractor
@@ -46,7 +47,7 @@ class SnapAieApplication : Application() {
             applicationContext,
             SnapAieDatabase::class.java,
             "snapaie.db",
-        ).addMigrations(MIGRATION_1_2).build()
+        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
 
         val httpClient = OkHttpClient.Builder().build()
         val modelRegistry = ModelRegistry(applicationContext)
