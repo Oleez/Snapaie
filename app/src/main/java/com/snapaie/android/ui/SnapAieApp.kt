@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -57,6 +58,13 @@ import com.snapaie.android.core.design.components.AmbientBubbles
 import com.snapaie.android.core.design.snapScreenBackground
 import com.snapaie.android.ui.chat.ChatScreen
 import com.snapaie.android.ui.library.LibraryScreen
+import androidx.compose.ui.platform.LocalContext
+import com.snapaie.android.ui.book.BookDetailScreen
+import com.snapaie.android.ui.book.BookExportScreen
+import com.snapaie.android.ui.book.BookReaderScreen
+import com.snapaie.android.ui.book.BookViewModel
+import com.snapaie.android.ui.book.BookViewModelFactory
+import com.snapaie.android.ui.book.BooksScreen
 import com.snapaie.android.ui.nav.Routes
 import com.snapaie.android.ui.notifications.LocalSnapToast
 import com.snapaie.android.ui.notifications.NotificationCenterSheet
@@ -77,10 +85,12 @@ import com.snapaie.android.ui.writing.WritingScreen
 import kotlinx.coroutines.flow.first
 
 private enum class BottomTab(val route: String, val label: String, val icon: ImageVector) {
+    // Books first: whole-book condensation is what the app is for now, and the page-level
+    // Snap is the quick tool beside it rather than the main event.
+    Books(Routes.Books, "Books", Icons.Filled.AutoStories),
     Snap(Routes.Snap, "Snap", Icons.Filled.CameraAlt),
     Recall(Routes.Recall, "Recall", Icons.Filled.Psychology),
-    Library(Routes.Library, "Library", Icons.Filled.AutoStories),
-    Progress(Routes.Progress, "Progress", Icons.Filled.Insights),
+    Library(Routes.Library, "Library", Icons.Filled.Inventory2),
 }
 
 @Composable
@@ -131,26 +141,55 @@ private fun MainShell(
     onIngestConsumed: () -> Unit,
 ) {
     val viewModel: SnapAieViewModel = viewModel(factory = SnapAieViewModelFactory(container))
+    val application = LocalContext.current.applicationContext as android.app.Application
+    val bookViewModel: BookViewModel = viewModel(factory = BookViewModelFactory(application, container))
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route.orEmpty()
 
     LaunchedEffect(startRoute) {
-        if (!startRoute.isNullOrBlank() && startRoute != Routes.Snap) navController.navigate(startRoute)
+        if (!startRoute.isNullOrBlank() && startRoute != Routes.Books) navController.navigate(startRoute)
     }
 
     LaunchedEffect(ingest) {
         if (ingest == null) return@LaunchedEffect
         when {
-            ingest.text != null -> viewModel.ingestText(ingest.text, title = "Shared text")
-            ingest.uri != null && ingest.isPdf -> viewModel.ingestPdf(ingest.uri)
-            ingest.uri != null -> viewModel.extractText(ingest.uri)
+            // A book-sized PDF or an EPUB goes to the condense flow; a page-sized one
+            // still goes to the quick scan, which is what sharing a single page means.
+            ingest.uri != null && ingest.looksLikeBook -> {
+                bookViewModel.importDocument(ingest.uri, ingest.kind, ingest.displayName)
+                navController.navigate(Routes.Books) { launchSingleTop = true }
+            }
+            ingest.text != null -> {
+                viewModel.ingestText(ingest.text, title = "Shared text")
+                navController.navigate(Routes.Snap) { launchSingleTop = true }
+            }
+            ingest.uri != null && ingest.isPdf -> {
+                viewModel.ingestPdf(ingest.uri)
+                navController.navigate(Routes.Snap) { launchSingleTop = true }
+            }
+            ingest.uri != null -> {
+                viewModel.extractText(ingest.uri)
+                navController.navigate(Routes.Snap) { launchSingleTop = true }
+            }
+            ingest.pageUris.isNotEmpty() -> {
+                viewModel.extractText(ingest.pageUris.first())
+                navController.navigate(Routes.Snap) { launchSingleTop = true }
+            }
         }
-        navController.navigate(Routes.Snap) { launchSingleTop = true }
         onIngestConsumed()
     }
 
+
     val toastController = rememberSnapToastController()
+    // Book messages share the app-wide snackbar rather than each screen hosting its own.
+    val bookMessage by bookViewModel.message.collectAsStateWithLifecycle()
+    LaunchedEffect(bookMessage) {
+        val text = bookMessage ?: return@LaunchedEffect
+        toastController.show(text)
+        bookViewModel.consumeMessage()
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
     var notificationsOpen by remember { mutableStateOf(false) }
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
@@ -171,6 +210,7 @@ private fun MainShell(
     }
 
     val hideBottomBar = currentRoute == Routes.Upgrade ||
+        currentRoute.endsWith("/read") ||
         currentRoute == Routes.Camera ||
         currentRoute.startsWith("scanDetail/") ||
         currentRoute.startsWith("chat/") ||
@@ -208,7 +248,7 @@ private fun MainShell(
                                 selected = backStack?.destination?.hierarchy?.any { it.route == tab.route } == true,
                                 onClick = {
                                     navController.navigate(tab.route) {
-                                        popUpTo(Routes.Snap) { saveState = true }
+                                        popUpTo(Routes.Books) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
@@ -225,13 +265,53 @@ private fun MainShell(
                 AmbientBubbles(mode = bubblesMode)
                 NavHost(
                     navController = navController,
-                    startDestination = Routes.Snap,
+                    startDestination = Routes.Books,
                     modifier = Modifier.padding(padding),
                     enterTransition = {
                         fadeIn(tween(350)) + slideInVertically(tween(350)) { it / 14 }
                     },
                     exitTransition = { fadeOut(tween(200)) },
                 ) {
+                    composable(Routes.Books) {
+                        BooksScreen(
+                            viewModel = bookViewModel,
+                            onOpenBook = { navController.navigate(Routes.bookDetail(it)) },
+                            onImported = { navController.navigate(Routes.bookDetail(it)) },
+                        )
+                    }
+                    composable(
+                        Routes.BookDetail,
+                        arguments = listOf(navArgument("bookId") { type = NavType.LongType }),
+                    ) { entry ->
+                        val bookId = entry.arguments?.getLong("bookId") ?: 0L
+                        BookDetailScreen(
+                            bookId = bookId,
+                            viewModel = bookViewModel,
+                            onBack = { navController.popBackStack() },
+                            onRead = { navController.navigate(Routes.bookReader(it)) },
+                            onExport = { navController.navigate(Routes.bookExport(it)) },
+                        )
+                    }
+                    composable(
+                        Routes.BookReader,
+                        arguments = listOf(navArgument("bookId") { type = NavType.LongType }),
+                    ) { entry ->
+                        BookReaderScreen(
+                            bookId = entry.arguments?.getLong("bookId") ?: 0L,
+                            viewModel = bookViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(
+                        Routes.BookExport,
+                        arguments = listOf(navArgument("bookId") { type = NavType.LongType }),
+                    ) { entry ->
+                        BookExportScreen(
+                            bookId = entry.arguments?.getLong("bookId") ?: 0L,
+                            viewModel = bookViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
                     composable(Routes.Snap) {
                         ScanHubScreen(
                             viewModel = viewModel,
