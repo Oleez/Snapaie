@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
 import com.snapaie.android.billing.BillingBridge
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.snapaie.android.data.ai.ModelRepository
 import com.snapaie.android.data.ai.download.ModelDownloadController
 import com.snapaie.android.data.ai.download.ModelDownloader
@@ -40,6 +41,10 @@ class SnapAieApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // PdfBox-Android loads its font and glyph-list resources from the APK rather than
+        // the classpath, so this has to run before any PDDocument is opened.
+        PDFBoxResourceLoader.init(applicationContext)
 
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val prefs = AppPreferencesRepository(applicationContext)

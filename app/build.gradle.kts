@@ -111,6 +111,8 @@ dependencies {
 
     implementation(libs.mlkit.text.recognition)
     implementation(libs.litertlm.android)
+    implementation(libs.pdfbox.android)
+    implementation(libs.mlkit.document.scanner)
 
     implementation(libs.billing.ktx)
 
