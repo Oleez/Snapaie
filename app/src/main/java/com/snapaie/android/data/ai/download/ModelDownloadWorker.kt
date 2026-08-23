@@ -14,6 +14,7 @@ import androidx.work.WorkerParameters
 import com.snapaie.android.MainActivity
 import com.snapaie.android.R
 import com.snapaie.android.SnapAieApplication
+import com.snapaie.android.data.ai.model.ModelBackend
 import com.snapaie.android.data.ai.model.ModelSpec
 
 /**
@@ -51,6 +52,7 @@ class ModelDownloadWorker(
             sha256 = sha,
             runtime = inputData.getString(KEY_RUNTIME).orEmpty(),
             runtimeVersion = inputData.getInt(KEY_RUNTIME_VERSION, 1),
+            backend = ModelBackend.fromWire(inputData.getString(KEY_BACKEND)),
         )
     }
 
@@ -177,6 +179,7 @@ class ModelDownloadWorker(
         const val KEY_SHA256 = "sha256"
         const val KEY_RUNTIME = "runtime"
         const val KEY_RUNTIME_VERSION = "runtimeVersion"
+        const val KEY_BACKEND = "backend"
 
         const val CHANNEL_ID = "snapaie_model_download"
         const val NOTIFICATION_ID = 4201

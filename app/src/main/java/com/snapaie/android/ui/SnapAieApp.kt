@@ -109,7 +109,7 @@ fun SnapAieApp(
                     CircularProgressIndicator()
                 }
             false ->
-                OnboardingFlow(prefs = prefs, onFinished = { onboardingGate = true })
+                OnboardingFlow(container = container, onFinished = { onboardingGate = true })
             true ->
                 MainShell(
                     container = container,

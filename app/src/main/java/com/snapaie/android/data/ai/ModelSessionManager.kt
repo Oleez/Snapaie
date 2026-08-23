@@ -6,6 +6,7 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.snapaie.android.data.ai.model.InstalledModel
+import com.snapaie.android.data.ai.model.ModelBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.Closeable
+import java.util.concurrent.atomic.AtomicInteger
 
 sealed interface ModelSessionState {
     data object Unloaded : ModelSessionState
@@ -37,9 +40,13 @@ class ModelNotInstalledException : IllegalStateException("No verified model is i
  * idle, unload on memory trim and when the app leaves the foreground, and single-flight
  * all inference behind a mutex so concurrent callers queue instead of racing the engine.
  *
- * It is also the gate that proves a freshly downloaded model actually works: the first
- * successful load promotes it to active (retiring older versions), and a failed load
- * rolls it back so the previously working model keeps serving.
+ * Two things it deliberately does *not* do:
+ *
+ *  - It does not assume GPU. `Backend.GPU()` needs a vendor OpenCL driver that plenty of
+ *    devices lack, so a failed load is retried on CPU before the artifact is blamed.
+ *  - It does not throw away a first install. Rejecting an artifact deletes gigabytes, and
+ *    that is only ever the right move when a previously-working model exists to fall back
+ *    to; see [ModelRepository.onModelLoadFailed].
  */
 class ModelSessionManager(
     private val context: Context,
@@ -50,6 +57,9 @@ class ModelSessionManager(
     private var engine: Engine? = null
     private var loadedKey: String? = null
     private var idleUnloadJob: Job? = null
+
+    /** Non-zero while a long-running job (e.g. a book condense) needs the engine resident. */
+    private val keepAlive = AtomicInteger(0)
 
     @Volatile
     private var streaming = false
@@ -66,6 +76,25 @@ class ModelSessionManager(
             "This device reports $totalGb GB RAM. On-device AI may be unstable here."
         } else {
             null
+        }
+    }
+
+    /**
+     * Pins the engine in memory for the duration of a long job.
+     *
+     * A book condense runs for hours, backgrounded by definition, so both the 60s idle
+     * unloader and the leave-the-foreground unload would otherwise tear the engine down
+     * between beats and pay the multi-second reload every time. Memory pressure still
+     * wins — it has to, or the OS kills the process instead.
+     */
+    fun acquireKeepAlive(): Closeable {
+        keepAlive.incrementAndGet()
+        idleUnloadJob?.cancel()
+        return Closeable {
+            if (keepAlive.decrementAndGet() <= 0) {
+                keepAlive.set(0)
+                scheduleIdleUnload()
+            }
         }
     }
 
@@ -100,11 +129,13 @@ class ModelSessionManager(
 
     /** Called from Application.onTrimMemory at TRIM_MEMORY_RUNNING_LOW or worse. */
     fun onMemoryPressure() {
+        // Overrides keep-alive: a long job pausing beats a process death.
         scope.launch { unload(force = true) }
     }
 
     /** Called when the app process leaves the foreground (never hold weights backgrounded). */
     fun onAppBackgrounded() {
+        if (keepAlive.get() > 0) return
         scope.launch { unload(force = false) }
     }
 
@@ -131,39 +162,64 @@ class ModelSessionManager(
 
         val file = modelRepository.activeModelFile()
         if (file == null || !file.isFile) {
-            modelRepository.onModelLoadFailed(record.modelId, record.version)
+            // The bytes are already gone; drop the record so the UI offers a re-download.
+            modelRepository.onModelFileMissing(record.modelId, record.version)
             _state.value = ModelSessionState.Error("Model file is missing.")
             throw ModelNotInstalledException()
         }
 
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                Engine(
-                    EngineConfig(
-                        modelPath = file.absolutePath,
-                        backend = Backend.GPU(),
-                        cacheDir = context.cacheDir.absolutePath,
-                    ),
-                ).also { it.initialize() }
-            }.fold(
-                onSuccess = { created ->
-                    engine = created
-                    loadedKey = key
-                    _state.value = ModelSessionState.Ready(label)
-                    // Proven loadable: promote it and retire older versions.
-                    promoteIfNeeded(record)
-                    created
-                },
-                onFailure = { error ->
-                    // Rollback: discard this artifact so the previous model keeps serving.
-                    modelRepository.onModelLoadFailed(record.modelId, record.version)
-                    _state.value = ModelSessionState.Error(
-                        error.message ?: "The model failed to load and was removed.",
-                    )
-                    throw IllegalStateException("LiteRT-LM engine failed to initialize", error)
-                },
-            )
+        val attempts = backendAttempts(record)
+        var lastError: Throwable? = null
+
+        for (backend in attempts) {
+            val created = withContext(Dispatchers.IO) {
+                runCatching {
+                    Engine(
+                        EngineConfig(
+                            modelPath = file.absolutePath,
+                            backend = backend.toRuntimeBackend(),
+                            cacheDir = context.cacheDir.absolutePath,
+                        ),
+                    ).also { it.initialize() }
+                }
+            }.getOrElse { error ->
+                lastError = error
+                null
+            }
+
+            if (created != null) {
+                engine = created
+                loadedKey = key
+                _state.value = ModelSessionState.Ready(label)
+                if (record.loadedBackend != backend.wireName) {
+                    modelRepository.onBackendResolved(record.modelId, record.version, backend)
+                }
+                // Proven loadable: promote it and retire older versions.
+                promoteIfNeeded(record)
+                return created
+            }
         }
+
+        val message = lastError?.message
+            ?: "The model could not be loaded on this device."
+        modelRepository.onModelLoadFailed(record.modelId, record.version)
+        _state.value = ModelSessionState.Error(message)
+        throw IllegalStateException("LiteRT-LM engine failed to initialize on ${attempts.joinToString()}", lastError)
+    }
+
+    /**
+     * Backends to try, best guess first: whatever last worked, else what the manifest
+     * variant targeted, then the other one. CPU is always in the list because it is the
+     * only backend with no driver prerequisite.
+     */
+    private fun backendAttempts(record: InstalledModel): List<ModelBackend> {
+        val first = ModelBackend.fromWire(record.loadedBackend ?: record.backend)
+        return (listOf(first) + ModelBackend.entries).distinct()
+    }
+
+    private fun ModelBackend.toRuntimeBackend(): Backend = when (this) {
+        ModelBackend.GPU -> Backend.GPU()
+        ModelBackend.CPU -> Backend.CPU()
     }
 
     private fun promoteIfNeeded(record: InstalledModel) {
@@ -173,6 +229,7 @@ class ModelSessionManager(
     }
 
     private fun scheduleIdleUnload() {
+        if (keepAlive.get() > 0) return
         idleUnloadJob?.cancel()
         idleUnloadJob = scope.launch {
             delay(IDLE_UNLOAD_MS)

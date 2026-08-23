@@ -22,6 +22,14 @@ data class InstalledModel(
     val verifiedAtMillis: Long,
     /** True once the engine has actually loaded this artifact at least once. */
     val loadVerified: Boolean = false,
+    /** Backend this artifact was downloaded for, per the manifest variant. */
+    val backend: String = ModelBackend.CPU.wireName,
+    /**
+     * Backend the engine actually managed to load it with. Null until a load succeeds.
+     * Set when [backend] turned out to be wrong (the OpenCL probe is a heuristic), so the
+     * next load starts with the one that works instead of retrying the failure.
+     */
+    val loadedBackend: String? = null,
 )
 
 @Serializable
@@ -135,6 +143,7 @@ class ModelRegistry(context: Context) {
                 runtimeVersion = spec.runtimeVersion,
                 verifiedAtMillis = System.currentTimeMillis(),
                 loadVerified = false,
+                backend = spec.backend.wireName,
             )
             snap.copy(
                 installed = snap.installed
@@ -179,6 +188,25 @@ class ModelRegistry(context: Context) {
             snap.copy(
                 activeKey = if (activeStillValid) snap.activeKey else null,
                 installed = remaining,
+            )
+        }
+    }
+
+    /**
+     * Records the backend the engine actually loaded this artifact with, so a device
+     * whose OpenCL probe guessed wrong does not pay the failed-GPU-load cost on every
+     * cold start.
+     */
+    fun recordLoadedBackend(modelId: String, version: String, backend: ModelBackend) {
+        update { snap ->
+            snap.copy(
+                installed = snap.installed.map {
+                    if (it.modelId == modelId && it.version == version) {
+                        it.copy(loadedBackend = backend.wireName)
+                    } else {
+                        it
+                    }
+                },
             )
         }
     }

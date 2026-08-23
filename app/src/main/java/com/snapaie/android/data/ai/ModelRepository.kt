@@ -6,6 +6,7 @@ import com.snapaie.android.data.ai.download.ModelDownloadController
 import com.snapaie.android.data.ai.download.ModelDownloadState
 import com.snapaie.android.data.ai.download.ModelDownloadStatus
 import com.snapaie.android.data.ai.model.InstalledModel
+import com.snapaie.android.data.ai.model.ModelBackend
 import com.snapaie.android.data.ai.model.ModelManifestRepository
 import com.snapaie.android.data.ai.model.ModelRegistry
 import com.snapaie.android.data.ai.model.ModelSpec
@@ -119,9 +120,9 @@ class ModelRepository(
     }
 
     /** Starts (or resumes) the download of the currently offered artifact. */
-    fun startDownload(): Boolean {
+    fun startDownload(wifiOnly: Boolean = false): Boolean {
         val spec = _state.value.downloadableSpec ?: return false
-        downloadController.start(spec)
+        downloadController.start(spec, wifiOnly)
         return true
     }
 
@@ -140,11 +141,33 @@ class ModelRepository(
         refreshLocal()
     }
 
+    /** Records which backend actually loaded an artifact, so the next cold start skips the failure. */
+    fun onBackendResolved(modelId: String, version: String, backend: ModelBackend) {
+        registry.recordLoadedBackend(modelId, version, backend)
+        refreshLocal()
+    }
+
     /**
-     * Rollback: the engine could not load this artifact. It is deleted and the previously
-     * active model is left untouched.
+     * The engine could not load this artifact on any backend.
+     *
+     * Rejecting deletes gigabytes, so it only happens when a *different*, already-proven
+     * model is on disk to fall back to. On a first install there is nothing to fall back
+     * to, and deleting would strand the user in a download-then-delete loop with no way
+     * out; the record is kept and the session manager surfaces the error instead.
      */
     fun onModelLoadFailed(modelId: String, version: String) {
+        val hasFallback = registry.snapshot.value.installed.any {
+            it.loadVerified && (it.modelId != modelId || it.version != version)
+        }
+        if (hasFallback) registry.rejectInstall(modelId, version)
+        refreshLocal()
+    }
+
+    /**
+     * The artifact is gone from disk (cleared app data, manual deletion). Nothing to
+     * preserve, so drop the record and let the UI offer a fresh download.
+     */
+    fun onModelFileMissing(modelId: String, version: String) {
         registry.rejectInstall(modelId, version)
         refreshLocal()
     }

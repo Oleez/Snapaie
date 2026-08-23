@@ -1,7 +1,9 @@
 package com.snapaie.android.data.ai.download
 
 import android.content.Context
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -63,8 +65,13 @@ class ModelDownloadController(
         )
     }
 
-    /** Enqueues the download as unique background work. Safe to call repeatedly. */
-    fun start(spec: ModelSpec) {
+    /**
+     * Enqueues the download as unique background work. Safe to call repeatedly.
+     *
+     * [wifiOnly] maps to an unmetered-network constraint: a 2 GB transfer on a metered
+     * connection is a real cost to the user, so it is opt-in rather than the default.
+     */
+    fun start(spec: ModelSpec, wifiOnly: Boolean = false) {
         activeSpec = spec
         prefs.edit().putBoolean(KEY_PAUSED, false).putBoolean(KEY_CANCELLED, false).apply()
         _state.value = _state.value.copy(
@@ -87,7 +94,15 @@ class ModelDownloadController(
                     ModelDownloadWorker.KEY_SHA256 to spec.sha256,
                     ModelDownloadWorker.KEY_RUNTIME to spec.runtime,
                     ModelDownloadWorker.KEY_RUNTIME_VERSION to spec.runtimeVersion,
+                    ModelDownloadWorker.KEY_BACKEND to spec.backend.wireName,
                 ),
+            )
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(
+                        if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED,
+                    )
+                    .build(),
             )
             .addTag(WORK_TAG)
             .build()

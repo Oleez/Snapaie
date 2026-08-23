@@ -4,11 +4,28 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
+ * One backend-specific build of the same model version.
+ *
+ * The GPU and CPU artifacts of a model differ in size (the GPU build of Gemma 4 E2B is
+ * ~575 MB smaller), so offering the right one is worth a device probe. Optional: a
+ * manifest with no [ModelManifest.variants] still works via the top-level fields.
+ */
+@Serializable
+data class ModelVariant(
+    val backend: String = ModelBackend.CPU.wireName,
+    val filename: String = "",
+    val downloadUrl: String = "",
+    val sizeBytes: Long = 0L,
+    val sha256: String = "",
+)
+
+/**
  * The remote `latest.json` describing the current model artifact.
  *
  * This is the only place model facts live. Nothing about the artifact — URL, size,
  * hash, filename, version — is compiled into the app, so a new model can ship without
- * a Play Store release.
+ * a Play Store release. A copy shipped in `assets/model/default-manifest.json` is used
+ * only when no remote manifest is configured or reachable.
  *
  * Unknown fields are ignored so the manifest can gain fields without breaking old apps.
  */
@@ -28,6 +45,11 @@ data class ModelManifest(
     val minAppVersion: Int = 0,
     /** Optional human note shown on the update card. */
     @SerialName("releaseNotes") val releaseNotes: String = "",
+    /**
+     * Optional per-backend builds. When present the app picks the one matching this
+     * device; when absent (or when no entry matches) the top-level fields are used.
+     */
+    val variants: List<ModelVariant> = emptyList(),
 ) {
     companion object {
         const val DEFAULT_RUNTIME = "litert-lm"
@@ -56,10 +78,16 @@ data class ModelSpec(
     val runtime: String,
     val runtimeVersion: Int,
     val releaseNotes: String = "",
+    /** Backend this artifact was selected for. */
+    val backend: ModelBackend = ModelBackend.CPU,
 ) {
     val expectedSha256: String get() = sha256.trim().lowercase()
 
-    /** Stable key used for directories and registry lookups. */
+    /**
+     * Stable key used for directories and registry lookups. Deliberately excludes the
+     * backend: only one variant is ever installed per device, and keeping the key stable
+     * means a device that switches backend replaces rather than duplicates 2 GB.
+     */
     val key: String get() = "$modelId@$version"
 
     val displayName: String get() = "$modelId $version"
@@ -79,14 +107,22 @@ object ModelManifestValidator {
     private const val MIN_RUNTIME_VERSION = 1
     private const val MAX_RUNTIME_VERSION = 1
 
-    fun validate(manifest: ModelManifest, appVersionCode: Int): ModelManifestValidation {
+    fun validate(
+        manifest: ModelManifest,
+        appVersionCode: Int,
+        preferredBackend: ModelBackend = DeviceBackends.preferred(),
+    ): ModelManifestValidation {
+        // Resolve the backend variant first, so the completeness checks below run against
+        // the artifact we would actually download.
+        val chosen = chooseVariant(manifest, preferredBackend)
+
         val missing = buildList {
             if (manifest.modelId.isBlank()) add("modelId")
             if (manifest.version.isBlank()) add("version")
-            if (manifest.filename.isBlank()) add("filename")
-            if (!manifest.downloadUrl.startsWith("https://", ignoreCase = true)) add("downloadUrl (https)")
-            if (manifest.sizeBytes <= 0L) add("sizeBytes")
-            if (!isValidSha256(manifest.sha256)) add("sha256")
+            if (chosen.filename.isBlank()) add("filename")
+            if (!chosen.downloadUrl.startsWith("https://", ignoreCase = true)) add("downloadUrl (https)")
+            if (chosen.sizeBytes <= 0L) add("sizeBytes")
+            if (!isValidSha256(chosen.sha256)) add("sha256")
         }
         if (missing.isNotEmpty()) {
             return ModelManifestValidation.Rejected(
@@ -112,15 +148,36 @@ object ModelManifestValidator {
             ModelSpec(
                 modelId = manifest.modelId.trim(),
                 version = manifest.version.trim(),
-                fileName = manifest.filename.trim(),
-                downloadUrl = manifest.downloadUrl.trim(),
-                expectedBytes = manifest.sizeBytes,
-                sha256 = manifest.sha256.trim(),
+                fileName = chosen.filename.trim(),
+                downloadUrl = chosen.downloadUrl.trim(),
+                expectedBytes = chosen.sizeBytes,
+                sha256 = chosen.sha256.trim(),
                 runtime = manifest.runtime.trim(),
                 runtimeVersion = manifest.runtimeVersion,
                 releaseNotes = manifest.releaseNotes.trim(),
+                backend = ModelBackend.fromWire(chosen.backend),
             ),
         )
+    }
+
+    /**
+     * The variant for [preferredBackend], else any other listed variant, else the
+     * top-level fields. Falling back to *some* variant matters: a GPU-only manifest must
+     * still be installable on a device whose OpenCL probe came back negative, because the
+     * probe is a heuristic and the engine retries on CPU anyway.
+     */
+    private fun chooseVariant(manifest: ModelManifest, preferredBackend: ModelBackend): ModelVariant {
+        val topLevel = ModelVariant(
+            backend = preferredBackend.wireName,
+            filename = manifest.filename,
+            downloadUrl = manifest.downloadUrl,
+            sizeBytes = manifest.sizeBytes,
+            sha256 = manifest.sha256,
+        )
+        if (manifest.variants.isEmpty()) return topLevel
+        return manifest.variants.firstOrNull {
+            ModelBackend.fromWire(it.backend) == preferredBackend
+        } ?: manifest.variants.first()
     }
 
     fun isValidSha256(value: String): Boolean {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,12 +15,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -30,22 +36,36 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.snapaie.android.AppContainer
 import com.snapaie.android.R
 import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.components.XpBar
 import com.snapaie.android.core.design.snapScreenBackground
+import com.snapaie.android.data.ai.ModelUiState
+import com.snapaie.android.ui.scan.formatBytes
 import kotlinx.coroutines.launch
 
-private data class OnboardingPage(val title: String, val body: String, val demo: Boolean = false)
+private data class OnboardingPage(
+    val title: String,
+    val body: String,
+    val demo: Boolean = false,
+    val model: Boolean = false,
+)
 
 @Composable
 fun OnboardingFlow(
-    prefs: com.snapaie.android.data.preferences.AppPreferencesRepository,
+    container: AppContainer,
     onFinished: () -> Unit,
 ) {
+    val prefs = container.appPreferencesRepository
     var step by rememberSaveable { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+
+    // Resolve what there is to download before the user reaches the last page, so the
+    // size on the button is real rather than a placeholder.
+    LaunchedEffect(Unit) { container.modelRepository.checkForUpdateIfDue() }
 
     val pages = listOf(
         OnboardingPage(
@@ -60,8 +80,17 @@ fun OnboardingFlow(
         OnboardingPage(
             stringResource(R.string.onboarding_headline_model),
             stringResource(R.string.onboarding_detail_model),
+            model = true,
         ),
     )
+
+    val finish: () -> Unit = {
+        scope.launch {
+            prefs.setOnboardingCompleted()
+            onFinished()
+        }
+        Unit
+    }
 
     Column(
         modifier = Modifier
@@ -72,7 +101,7 @@ fun OnboardingFlow(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val page = pages[step.coerceIn(0, pages.lastIndex)]
-        LiquidGlassSurface(contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp)) {
+        LiquidGlassSurface(contentPadding = PaddingValues(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(18.dp), horizontalAlignment = Alignment.Start) {
                 Box(
                     modifier = Modifier
@@ -98,7 +127,7 @@ fun OnboardingFlow(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                // Value demo first (PDF rule): show the payoff before asking for a 3 GB download.
+                // Value demo first (PDF rule): show the payoff before asking for a 2 GB download.
                 if (page.demo) SampleResultPreview()
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -118,39 +147,112 @@ fun OnboardingFlow(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = {
-                        if (step < pages.lastIndex) {
-                            step++
-                        } else {
-                            scope.launch {
-                                prefs.setOnboardingCompleted()
-                                onFinished()
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        if (step < pages.lastIndex) {
-                            stringResource(R.string.onboarding_next)
-                        } else {
-                            stringResource(R.string.onboarding_get_started)
-                        },
-                    )
-                }
-                if (step < pages.lastIndex) {
-                    TextButton(
-                        onClick = {
-                            scope.launch {
-                                prefs.setOnboardingCompleted()
-                                onFinished()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Skip") }
+
+                if (page.model) {
+                    ModelOnboardingStep(container = container, onDone = finish)
+                } else {
+                    Button(onClick = { step++ }, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(R.string.onboarding_next))
+                    }
+                    TextButton(onClick = finish, modifier = Modifier.fillMaxWidth()) { Text("Skip") }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The one screen that asks for the model.
+ *
+ * Before this existed the download lived only on a card partway down the Snap hub, so a
+ * user could run the whole app never knowing there was an AI to turn on — every scan
+ * quietly degraded to a heuristic draft instead. The download still starts only on an
+ * explicit tap, and onboarding never blocks on it: the transfer continues in the
+ * background while the user gets on with reading.
+ */
+@Composable
+private fun ModelOnboardingStep(
+    container: AppContainer,
+    onDone: () -> Unit,
+) {
+    val modelState: ModelUiState by container.modelRepository.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    // Default to Wi-Fi: two gigabytes over cellular is a bill, not a preference.
+    var wifiOnly by remember { mutableStateOf(true) }
+
+    val spec = modelState.downloadableSpec
+    val download = modelState.download
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        when {
+            modelState.isModelInstalled -> {
+                Text(
+                    "Offline AI is ready — ${modelState.installed?.modelId.orEmpty()} is on this device.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            download.status.isActive -> {
+                LinearProgressIndicator(
+                    progress = { download.fraction },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Downloading — ${download.percent}%. You can carry on; it keeps going in the background.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            spec != null -> {
+                Text(
+                    "${spec.modelId} · ${formatBytes(spec.expectedBytes)} · Apache-2.0. " +
+                        "Downloaded once, then every page you read is processed on this phone — " +
+                        "no account, no upload, works in airplane mode.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Wi-Fi only", style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = wifiOnly, onCheckedChange = { wifiOnly = it })
+                }
+            }
+
+            else -> {
+                Text(
+                    "No model is reachable right now. You can turn offline AI on later from Settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        modelState.ramWarning?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
+        if (spec != null && !modelState.isModelInstalled && !download.status.isActive) {
+            Button(
+                onClick = {
+                    // Same consent the Snap hub card collects, recorded before the transfer.
+                    scope.launch { container.appPreferencesRepository.setGemmaLicenseAccepted() }
+                    container.modelRepository.startDownload(wifiOnly)
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Download ${formatBytes(spec.expectedBytes)}")
+            }
+        }
+
+        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.onboarding_get_started))
+        }
+        if (spec != null && !modelState.isModelInstalled && !download.status.isActive) {
+            TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Not now") }
         }
     }
 }

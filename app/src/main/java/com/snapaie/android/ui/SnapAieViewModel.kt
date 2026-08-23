@@ -130,8 +130,8 @@ class SnapAieViewModel(
         _uiState.update { it.copy(draft = it.draft.copy(context = context)) }
     }
 
-    fun downloadModel() {
-        container.modelRepository.startDownload()
+    fun downloadModel(wifiOnly: Boolean = false) {
+        container.modelRepository.startDownload(wifiOnly)
     }
 
     fun pauseModelDownload() = container.modelRepository.pauseDownload()

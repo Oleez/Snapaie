@@ -10,21 +10,35 @@ import okhttp3.Request
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** Outcome of reading the remote manifest. */
+/** Where a manifest came from, in descending order of authority. */
+enum class ManifestSource {
+    /** Freshly fetched from the configured remote URL. */
+    NETWORK,
+
+    /** The last good remote manifest, replayed from disk. */
+    CACHE,
+
+    /** The copy compiled into the APK at `assets/model/default-manifest.json`. */
+    BUNDLED,
+}
+
+/** Outcome of reading the manifest. */
 sealed interface ManifestResult {
-    /** A valid, compatible manifest. [fromCache] when the network copy was unavailable. */
-    data class Available(val spec: ModelSpec, val fromCache: Boolean) : ManifestResult
+    /** A valid, compatible manifest. */
+    data class Available(val spec: ModelSpec, val source: ManifestSource) : ManifestResult {
+        val fromCache: Boolean get() = source != ManifestSource.NETWORK
+    }
 
     /** Parsed, but this build cannot use it. The installed model keeps working. */
     data class Incompatible(val reason: ModelIncompatibility, val message: String) : ManifestResult
 
-    /** Network down, 404, malformed JSON, or no URL configured. */
+    /** Network down, 404, malformed JSON, and no usable fallback. */
     data class Unavailable(val message: String) : ManifestResult
 }
 
 /** What the UI should offer the user about the model. */
 sealed interface ModelUpdateStatus {
-    /** No manifest URL configured in this build. */
+    /** No manifest URL configured and no usable bundled default. */
     data object NotConfigured : ModelUpdateStatus
 
     /** Nothing installed and a model is available to fetch (first-install flow). */
@@ -47,12 +61,16 @@ sealed interface ModelUpdateStatus {
 }
 
 /**
- * Fetches and caches the remote `latest.json`.
+ * Resolves the model manifest from, in order: the configured remote URL, the last good
+ * remote copy cached on disk, and finally the manifest compiled into the APK.
  *
- * The manifest is the only channel through which model facts reach the app, which is
- * what lets a new model ship without a Play Store release. Every failure mode is
- * non-fatal: the last good manifest is cached on disk, and if that is missing too the
- * caller simply keeps using whatever is already installed.
+ * The remote manifest is still the channel that lets a new model ship without a Play
+ * Store release, and it always wins when reachable. The bundled default exists so that
+ * a build with no hosting configured is not silently AI-less: before it existed, an empty
+ * `snapaie.model.manifest.url` meant every scan fell back to a heuristic draft with no
+ * way for the user to fix it.
+ *
+ * Every failure mode is non-fatal — the caller keeps using whatever is already installed.
  */
 class ModelManifestRepository(
     context: Context,
@@ -70,11 +88,18 @@ class ModelManifestRepository(
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private val assets = context.applicationContext.assets
     private val cacheFile = File(registry.modelsDir, CACHE_FILE)
     private val metaPrefs =
         context.getSharedPreferences("snapaie_model_manifest", Context.MODE_PRIVATE)
 
-    val isConfigured: Boolean get() = manifestUrl.trim().startsWith("https://", ignoreCase = true)
+    /** True when this build points at a hosted manifest. */
+    val hasRemoteManifest: Boolean
+        get() = manifestUrl.trim().startsWith("https://", ignoreCase = true)
+
+    /** True when the app knows about any model at all — remote, cached, or bundled. */
+    val isConfigured: Boolean
+        get() = hasRemoteManifest || bundledResult() is ManifestResult.Available
 
     val lastCheckedAtMillis: Long get() = metaPrefs.getLong(KEY_LAST_CHECKED, 0L)
 
@@ -83,12 +108,14 @@ class ModelManifestRepository(
         nowMillis - lastCheckedAtMillis >= CHECK_INTERVAL_MS
 
     /**
-     * Reads the manifest, preferring the network and falling back to the cached copy.
-     * Never throws.
+     * Reads the manifest, preferring the network and degrading through the disk cache to
+     * the bundled default. Never throws.
      */
     suspend fun fetch(force: Boolean = false): ManifestResult = withContext(Dispatchers.IO) {
-        if (!isConfigured) {
-            return@withContext ManifestResult.Unavailable("No model manifest URL is configured in this build.")
+        if (!hasRemoteManifest) {
+            return@withContext cachedResult() ?: bundledResult() ?: ManifestResult.Unavailable(
+                "No model manifest is configured in this build.",
+            )
         }
         if (!force && !isCheckDue()) {
             // Inside the throttle window: serve the cached manifest without a request.
@@ -101,11 +128,9 @@ class ModelManifestRepository(
                 response.body?.string().orEmpty()
             }
         }.getOrElse { error ->
-            // Network failure: fall back to the last good manifest so an offline launch
-            // still knows what the current model is.
-            return@withContext cachedResult()?.let { cached ->
-                if (cached is ManifestResult.Available) cached.copy(fromCache = true) else cached
-            } ?: ManifestResult.Unavailable(
+            // Network failure: fall back to the last good manifest, then to the bundled
+            // one, so an offline first launch still knows what it can download later.
+            return@withContext cachedResult() ?: bundledResult() ?: ManifestResult.Unavailable(
                 error.message?.let { "Could not reach the model manifest ($it)." }
                     ?: "Could not reach the model manifest.",
             )
@@ -114,13 +139,13 @@ class ModelManifestRepository(
         metaPrefs.edit().putLong(KEY_LAST_CHECKED, System.currentTimeMillis()).apply()
 
         val manifest = runCatching { json.decodeFromString<ModelManifest>(networkJson) }.getOrNull()
-            ?: return@withContext cachedResult()
+            ?: return@withContext cachedResult() ?: bundledResult()
                 ?: ManifestResult.Unavailable("The model manifest could not be read.")
 
         when (val validation = ModelManifestValidator.validate(manifest, appVersionCode)) {
             is ModelManifestValidation.Accepted -> {
                 runCatching { cacheFile.writeText(networkJson) }
-                ManifestResult.Available(validation.spec, fromCache = false)
+                ManifestResult.Available(validation.spec, ManifestSource.NETWORK)
             }
             is ModelManifestValidation.Rejected ->
                 if (validation.reason == ModelIncompatibility.MALFORMED) {
@@ -134,17 +159,16 @@ class ModelManifestRepository(
     /** Compares the manifest against what is installed to decide what to offer the user. */
     suspend fun checkForUpdate(force: Boolean = false): ModelUpdateStatus {
         val installed = registry.activeRecord()
-        if (!isConfigured) return ModelUpdateStatus.NotConfigured
 
         return when (val result = fetch(force)) {
             is ManifestResult.Incompatible ->
                 ModelUpdateStatus.Incompatible(result.message, installed)
 
             is ManifestResult.Unavailable ->
-                if (installed != null) {
-                    ModelUpdateStatus.CheckFailed(result.message, installed)
-                } else {
-                    ModelUpdateStatus.Unavailable(result.message)
+                when {
+                    installed != null -> ModelUpdateStatus.CheckFailed(result.message, installed)
+                    !isConfigured -> ModelUpdateStatus.NotConfigured
+                    else -> ModelUpdateStatus.Unavailable(result.message)
                 }
 
             is ManifestResult.Available -> {
@@ -162,17 +186,27 @@ class ModelManifestRepository(
         }
     }
 
-    /** The cached manifest, if one was ever stored and is still compatible. */
-    fun cachedSpec(): ModelSpec? = (cachedResult() as? ManifestResult.Available)?.spec
+    /** The best manifest available without touching the network. */
+    fun cachedSpec(): ModelSpec? =
+        ((cachedResult() ?: bundledResult()) as? ManifestResult.Available)?.spec
 
     private fun cachedResult(): ManifestResult? {
         if (!cacheFile.isFile) return null
+        return parse(runCatching { cacheFile.readText() }.getOrNull(), ManifestSource.CACHE)
+    }
+
+    private fun bundledResult(): ManifestResult? = parse(
+        runCatching { assets.open(BUNDLED_ASSET).bufferedReader().use { it.readText() } }.getOrNull(),
+        ManifestSource.BUNDLED,
+    )
+
+    private fun parse(raw: String?, source: ManifestSource): ManifestResult? {
         val manifest = runCatching {
-            json.decodeFromString<ModelManifest>(cacheFile.readText())
+            json.decodeFromString<ModelManifest>(raw ?: return null)
         }.getOrNull() ?: return null
         return when (val validation = ModelManifestValidator.validate(manifest, appVersionCode)) {
             is ModelManifestValidation.Accepted ->
-                ManifestResult.Available(validation.spec, fromCache = true)
+                ManifestResult.Available(validation.spec, source)
             is ModelManifestValidation.Rejected ->
                 ManifestResult.Incompatible(validation.reason, validation.message)
         }
@@ -180,6 +214,7 @@ class ModelManifestRepository(
 
     private companion object {
         const val CACHE_FILE = "latest-manifest.json"
+        const val BUNDLED_ASSET = "model/default-manifest.json"
         const val KEY_LAST_CHECKED = "last_checked_at"
         val CHECK_INTERVAL_MS = TimeUnit.HOURS.toMillis(24)
     }
