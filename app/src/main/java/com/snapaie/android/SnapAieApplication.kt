@@ -13,6 +13,7 @@ import com.snapaie.android.data.ingest.EpubIngestor
 import com.snapaie.android.data.ingest.PdfIngestor
 import com.snapaie.android.domain.condense.BeatCondenser
 import com.snapaie.android.domain.condense.CondensePipeline
+import com.snapaie.android.domain.output.BookExporter
 import com.snapaie.android.domain.scan.PromptLibrary
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.snapaie.android.data.ai.ModelRepository
@@ -111,6 +112,14 @@ class SnapAieApplication : Application() {
             sessionManager = sessionManager,
         )
 
+        val bookExporter = BookExporter(
+            repository = bookRepository,
+            storage = bookStorage,
+            bookDao = database.bookDao(),
+            assetDao = database.bookAssetDao(),
+            exportDao = database.bookExportDao(),
+        )
+
         container = AppContainer(
             database = database,
             modelRepository = modelRepository,
@@ -122,6 +131,7 @@ class SnapAieApplication : Application() {
             bookStorage = bookStorage,
             bookRepository = bookRepository,
             condensePipeline = condensePipeline,
+            bookExporter = bookExporter,
             workflowEngine = WorkflowEngine(
                 context = applicationContext,
                 sessionManager = sessionManager,
@@ -166,6 +176,7 @@ data class AppContainer(
     val bookStorage: BookStorage,
     val bookRepository: BookRepository,
     val condensePipeline: CondensePipeline,
+    val bookExporter: BookExporter,
     val workflowEngine: WorkflowEngine,
     val chatEngine: ChatEngine,
     val writingEngine: WritingEngine,
