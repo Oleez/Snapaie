@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.snapaie.android.AppContainer
+import com.snapaie.android.data.ai.ModelUiState
 import com.snapaie.android.data.ingest.IngestProgress
 import com.snapaie.android.data.local.BeatProgress
 import com.snapaie.android.data.local.BookBeatEntity
@@ -64,6 +65,37 @@ class BookViewModel(
 ) : AndroidViewModel(application) {
 
     private val repository = container.bookRepository
+
+    /**
+     * Model state, mirrored here so the Books tab can offer the download.
+     *
+     * Books is the start destination now, and the setup card used to exist only on the
+     * Snap tab — so anyone who had already finished onboarding landed on a screen with no
+     * way to turn the AI on and no reason to suspect one existed elsewhere.
+     */
+    val modelState: StateFlow<ModelUiState> = container.modelRepository.state
+
+    val settings = container.appPreferencesRepository.userSettings
+
+    fun checkForModel() {
+        container.modelRepository.checkForUpdateIfDue()
+    }
+
+    fun downloadModel(wifiOnly: Boolean) {
+        container.modelRepository.startDownload(wifiOnly)
+    }
+
+    fun pauseModelDownload() = container.modelRepository.pauseDownload()
+
+    fun cancelModelDownload() = container.modelRepository.cancelDownload()
+
+    fun recheckModel() {
+        viewModelScope.launch { container.modelRepository.checkForUpdate(force = true) }
+    }
+
+    fun acceptModelLicense() {
+        viewModelScope.launch { container.appPreferencesRepository.setGemmaLicenseAccepted() }
+    }
 
     val books: StateFlow<List<BookEntity>> = repository.observeBooks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

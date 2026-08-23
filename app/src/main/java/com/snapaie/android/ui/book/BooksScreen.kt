@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -38,7 +39,9 @@ import com.snapaie.android.core.design.components.pressableScale
 import com.snapaie.android.data.local.BookEntity
 import com.snapaie.android.data.model.BookImportState
 import com.snapaie.android.data.model.BookSourceKind
+import com.snapaie.android.data.preferences.UserSettings
 import com.snapaie.android.domain.share.BookSharing
+import com.snapaie.android.ui.model.ModelSetupCard
 
 /**
  * The shelf. Every imported book, with how far its condensation has got.
@@ -56,6 +59,11 @@ fun BooksScreen(
 ) {
     val books by viewModel.books.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
+    val modelState by viewModel.modelState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
+
+    // Resolve what there is to download so the card can name a real size.
+    LaunchedEffect(Unit) { viewModel.checkForModel() }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -82,6 +90,18 @@ fun BooksScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        item {
+            ModelSetupCard(
+                modelState = modelState,
+                licenseAccepted = settings.gemmaLicenseAccepted,
+                onDownload = viewModel::downloadModel,
+                onPause = viewModel::pauseModelDownload,
+                onCancel = viewModel::cancelModelDownload,
+                onCheckAgain = viewModel::recheckModel,
+                onAcceptLicense = viewModel::acceptModelLicense,
+            )
         }
 
         item {

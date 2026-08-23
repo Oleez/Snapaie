@@ -5,6 +5,14 @@ enum class ModelDownloadStatus {
     /** Nothing in flight and nothing partially fetched. */
     IDLE,
 
+    /**
+     * Enqueued, but WorkManager is holding it until its constraints are met — in practice
+     * always "waiting for Wi-Fi". Distinct from CHECKING because a blocked transfer that
+     * renders as a spinner is indistinguishable from a hung one, and the user has no way
+     * to know the fix is in their own hands.
+     */
+    QUEUED,
+
     /** Inspecting local state: is it already installed, is there a resumable part file. */
     CHECKING,
 
@@ -34,8 +42,8 @@ enum class ModelDownloadStatus {
     ;
 
     val isActive: Boolean
-        get() = this == CHECKING || this == PREPARING || this == DOWNLOADING ||
-            this == VERIFYING || this == INSTALLING
+        get() = this == QUEUED || this == CHECKING || this == PREPARING ||
+            this == DOWNLOADING || this == VERIFYING || this == INSTALLING
 
     val isTerminal: Boolean
         get() = this == COMPLETED || this == FAILED || this == CANCELLED
@@ -82,7 +90,13 @@ data class ModelDownloadState(
     val bytesPerSecond: Long = 0L,
     val error: ModelDownloadError = ModelDownloadError.NONE,
     val errorMessage: String? = null,
+    /** Whether this transfer was queued with an unmetered-network constraint. */
+    val wifiOnly: Boolean = false,
 ) {
+    /** Enqueued but held back, almost always because Wi-Fi was required and is absent. */
+    val isWaitingForNetwork: Boolean
+        get() = status == ModelDownloadStatus.QUEUED
+
     /** 0f..1f; 0 when the total is unknown. */
     val fraction: Float
         get() = if (totalBytes <= 0L) 0f else (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)

@@ -74,14 +74,17 @@ class ModelDownloadController(
     fun start(spec: ModelSpec, wifiOnly: Boolean = false) {
         activeSpec = spec
         prefs.edit().putBoolean(KEY_PAUSED, false).putBoolean(KEY_CANCELLED, false).apply()
+        // QUEUED, not CHECKING: WorkManager may hold this for hours if the user asked for
+        // Wi-Fi only and is on mobile data. Saying "checking" through that is a lie.
         _state.value = _state.value.copy(
-            status = ModelDownloadStatus.CHECKING,
+            status = ModelDownloadStatus.QUEUED,
             modelId = spec.modelId,
             displayName = spec.displayName,
             totalBytes = spec.expectedBytes,
             downloadedBytes = registry.partialBytes(spec),
             error = ModelDownloadError.NONE,
             errorMessage = null,
+            wifiOnly = wifiOnly,
         )
         val request = OneTimeWorkRequestBuilder<ModelDownloadWorker>()
             .setInputData(

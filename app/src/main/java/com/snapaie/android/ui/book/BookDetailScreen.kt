@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.components.ScreenHeader
 import com.snapaie.android.data.model.CondenseJobState
+import com.snapaie.android.data.preferences.UserSettings
+import com.snapaie.android.ui.model.ModelSetupCard
 import com.snapaie.android.data.model.CondenseTargetKind
 import com.snapaie.android.domain.condense.CondenseTarget
 
@@ -50,6 +52,8 @@ fun BookDetailScreen(
     onExport: (Long) -> Unit,
 ) {
     val state by viewModel.detail(bookId).collectAsStateWithLifecycle()
+    val modelState by viewModel.modelState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
     val book = state.book
 
     var targetKind by remember { mutableStateOf(CondenseTargetKind.PERCENT) }
@@ -69,6 +73,20 @@ fun BookDetailScreen(
                 title = book?.title.orEmpty().ifBlank { "Book" },
                 subtitle = book?.let { "${it.sourcePageCount} pages · ${it.sourceWordCount} words" },
                 onBack = onBack,
+            )
+        }
+
+        // The card, not just a message. Telling someone to turn on offline AI and giving
+        // them nowhere to do it is how the download went unfound in the first place.
+        item {
+            ModelSetupCard(
+                modelState = modelState,
+                licenseAccepted = settings.gemmaLicenseAccepted,
+                onDownload = viewModel::downloadModel,
+                onPause = viewModel::pauseModelDownload,
+                onCancel = viewModel::cancelModelDownload,
+                onCheckAgain = viewModel::recheckModel,
+                onAcceptLicense = viewModel::acceptModelLicense,
             )
         }
 
@@ -130,6 +148,7 @@ fun BookDetailScreen(
 
                         if (!state.isRunning) {
                             Button(
+                                enabled = modelState.isModelInstalled,
                                 onClick = {
                                     viewModel.startCondense(
                                         bookId = bookId,
@@ -144,7 +163,13 @@ fun BookDetailScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(if (state.progress.done > 0) "Resume" else "Condense this book")
+                                Text(
+                                    when {
+                                        !modelState.isModelInstalled -> "Turn on offline AI first"
+                                        state.progress.done > 0 -> "Resume"
+                                        else -> "Condense this book"
+                                    },
+                                )
                             }
                         }
                     }
