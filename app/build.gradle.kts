@@ -32,6 +32,13 @@ android {
 
     buildTypes {
         release {
+            // LiteRT-LM and PDFBox ship native libraries for four ABIs, which is 88 MB of
+            // the debug APK. x86 builds exist for emulators, and emulators cannot run the
+            // model anyway, so release keeps only the two ABIs real phones use. (A Play
+            // App Bundle would split these automatically; this is for direct APKs.)
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

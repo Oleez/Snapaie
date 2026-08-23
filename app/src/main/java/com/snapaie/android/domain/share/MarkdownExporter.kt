@@ -24,9 +24,6 @@ class MarkdownExporter(private val context: Context) {
         append(scan.result.toMarkdown(includeBranding))
     }
 
-    fun exportAll(scans: List<KnowledgeScan>, includeBranding: Boolean): String =
-        scans.joinToString("\n\n---\n\n") { scanToMarkdown(it, includeBranding) }
-
     /** Writes markdown to cache and returns a share/save chooser intent. */
     fun shareMarkdownFile(markdown: String, fileName: String): Intent {
         val dir = File(context.cacheDir, "share").apply { mkdirs() }

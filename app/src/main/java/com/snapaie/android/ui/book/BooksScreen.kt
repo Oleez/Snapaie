@@ -16,11 +16,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,6 +52,7 @@ fun BooksScreen(
     viewModel: BookViewModel,
     onOpenBook: (Long) -> Unit,
     onImported: (Long) -> Unit,
+    onScanPages: () -> Unit,
 ) {
     val books by viewModel.books.collectAsStateWithLifecycle()
     val importState by viewModel.importState.collectAsStateWithLifecycle()
@@ -114,12 +117,18 @@ fun BooksScreen(
                     LaunchedImport(state.bookId, viewModel, onImported)
                 }
 
-                ImportState.Idle -> Button(
-                    onClick = { picker.launch(BookSharing.IMPORT_MIME_TYPES) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("  Add a book")
+                ImportState.Idle -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { picker.launch(BookSharing.IMPORT_MIME_TYPES) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("  Add a file")
+                    }
+                    OutlinedButton(onClick = onScanPages, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.DocumentScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("  Scan pages")
+                    }
                 }
             }
         }
@@ -131,7 +140,8 @@ fun BooksScreen(
                         Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
                         Text(
                             "Add a file, or share a PDF or EPUB to snapaie from any other app. " +
-                                "A 500-page novel comes back as 150 pages, or 50, with the story intact.",
+                                "A 500-page novel comes back as 150 pages, or 50, with the story intact. " +
+                                "You can also photograph a physical book page by page.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

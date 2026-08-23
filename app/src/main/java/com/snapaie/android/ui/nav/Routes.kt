@@ -11,6 +11,7 @@ object Routes {
     const val BookReader = "book/{bookId}/read"
     const val BookExport = "book/{bookId}/export"
 
+    const val ScanTray = "scanTray"
     const val ScanRun = "scanRun"
     const val Camera = "camera"
     const val ScanDetail = "scanDetail/{scanId}"

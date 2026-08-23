@@ -1,87 +1,128 @@
 # snapaie
 
-**Cut the fluff. Keep the knowledge.**
+**A 500-page novel, told again in 150 pages. Or 50. Nothing skipped.**
 
-The only reading assistant that never sends your pages anywhere — it works with airplane mode on and costs zero data.
+snapaie condenses whole books on your device. Not a summary — a *retelling*: the same
+story, in the same order, in the book's own voice, just shorter. Every event survives.
+Images come with it. The table of contents is rebuilt against the new page numbers.
 
-snapaie turns a page of text into compressed understanding entirely on-device: ML Kit reads the page, local Gemma (LiteRT-LM) compresses it, and everything is stored in a local database. No account, no login, no cloud sync, no ads.
+It runs entirely offline. No account, no cloud, no ads, no analytics. The only network
+request the app ever makes is the one-time model download you explicitly approve.
 
-## Three doors, one engine
+## What it does
 
-All entry points feed the same pipeline:
+**Bring a book in** — share or "Open with" a PDF or EPUB from any app, pick one from
+storage, or photograph a physical book page by page.
 
-1. **Select text anywhere in Android** → tap "Snap" in the selection toolbar (`ACTION_PROCESS_TEXT`). Zero permissions, instant result sheet over the host app.
-2. **Share sheet** (`ACTION_SEND`) → plain text, PDFs, and images. PDFs render page-by-page through `PdfRenderer` into the same OCR path.
-3. **Camera / import** → photograph a physical book page or pick an image.
+**Choose a length** — 30%, 10%, or an exact page count. The app tells you up front roughly
+how long it will take, because a 500-page book is a multi-hour job on a phone.
 
-## Core experience
+**Read it as it is written** — chapters finish in order, so you can start chapter 1 while
+chapter 20 is still running. Any passage can be opened beside its source to check it.
 
-Snap or share a page → on-device OCR → local AI compresses it into a structured result:
+**Take it with you** — export as PDF (with working bookmarks and a clickable rebuilt
+contents), EPUB, Markdown, or plain text. Share it out or save it to Files.
 
-- concise meaning, core idea, author intent
-- simplified explanation and actionable takeaways
-- hidden meaning and key quotes worth keeping
-- filler detection (repetition, padding, decorative setup)
-- compression score and honest, locally computed time saved
-- CEFR vocabulary (B2 / C1 / C2) on demand
+The original page-level tools are still here: select text anywhere in Android and tap
+"Snap", share a single page, or photograph one. Those give the structured knowledge scan —
+core idea, vocabulary, filler detection — plus Forge Recall, chat, and the writing
+assistant.
 
-**Explanation styles:** Auto, Concise, Detailed, Bullets, Analogy, Steps. Output can be generated in any of ~49 languages.
-
-## Beyond the scan
-
-- **Forge Recall** — spaced-repetition practice built from what you read. XP and levels, daily streak with streak freezes, a daily quest, a knowledge map with strength rings and due-now states, and three game modes: Rapid Fire (True/False), Survival (one life), and Explain It (Feynman-style AI scoring).
-- **Chat with AE** — follow-up conversation about any scan, with 14 personas ("book lenses"), deliverable cards, and four chat appearances.
-- **Writing assistant** — fix, rewrite, tone, shorten, expand, paraphrase, humanize, summarize, translate, synonyms, with sub-modes, dialects, and re-roll.
-- **Narration** — system TextToSpeech reads results aloud, fully offline.
-- **Reader Report** — weekly single screen plus a shareable PNG card (your numbers, no download CTA).
-
-## Architecture
+## How the condensation works
 
 ```
-Entry (PROCESS_TEXT | SHARE | CAMERA)
-  ├─ pixels ──> ML Kit Text Recognition ─┐
-  └─ text ──────────────────────────────┤
-                                        v
-                        Prompt assembly (assets/prompts)
-                                        v
-                        Gemma / LiteRT-LM (on-device)
-                                        v
-                     JSON repair ladder ──> KnowledgeResult
-                                        v
-                        Room persistence + growth stats
+PDF / EPUB / camera
+        ↓  text layer where there is one, OCR where there is not
+   one flat text buffer
+        ↓  chapters from the outline, or from heading heuristics
+   chapters → beats (~900 source words each)
+        ↓  every beat, in order, carrying a story ledger forward
+   condensed prose per beat
+        ↓  layout, fixed-point index rebuild
+   PDF / EPUB / Markdown / text
 ```
 
-**Model lifecycle** is the biggest crash risk and is handled in `ModelSessionManager`: lazy-load on first inference (never at app start), unload after 60s idle, unload on `onTrimMemory(TRIM_MEMORY_RUNNING_LOW)` and when the app is backgrounded, single-flight inference behind a mutex, and a RAM gate based on `ActivityManager.MemoryInfo.totalMem`.
+Three ideas hold it together.
 
-**Output contract:** the model is asked for strict JSON and parsed defensively through a repair ladder (direct parse → fence strip → outermost balanced braces → bare-array wrap → one stricter retry → plain-text render). It never shows a parse error to the user.
+**Beats tile the text exactly.** Every character of the source belongs to precisely one
+beat, and a run is finished only when no beat is left unwritten. "Nothing was skipped"
+stops being a claim about model behaviour and becomes a property of the segmentation,
+checkable with a `COUNT`. It is also the entire resume mechanism — the job asks for the
+next unfinished beat, which is the same question whether it is minute one or a restart
+after an overnight reboot.
 
-## Monetization
+**A story ledger travels between beats.** The model only ever sees a ~900-word window.
+Without carried state it re-introduces characters it has already met, renames them, forgets
+who died, and drops threads set up chapters ago. The ledger holds who, where, what is
+unresolved and where the last passage stopped — capped, and evicted by
+least-recently-mentioned.
 
-Free: unlimited snaps, all styles, all languages, basic history, 5 Forge topics, Rapid Fire, narration.
+**Length is governed, not guessed.** A flat ratio does not land: a model that runs 25% long
+finishes a 150-page target 40% over. After every beat the governor recomputes what ratio
+the remaining source needs to hit the remaining budget — clamped, so an early overshoot
+cannot starve the final chapters into collapse. A few percent long beats a gutted ending.
 
-**Pro is a one-time purchase** (no subscription): full Forge Recall, Markdown/Obsidian export, batch PDF and multi-image processing, the larger model, all personas and chat styles, custom instructions, and no branding footer.
+Below about 20% the work goes via an intermediate 30% pass, because asking a 2B model for
+10:1 in one step is where skipping comes from. That intermediate edition is kept and is
+readable in its own right.
 
-There are no ads and no analytics SDKs.
+**No passage can fail.** Over thousands of model calls something will come back empty,
+truncated, or as a summary. Beats are retried with a widened allowance, then written
+extractively rather than failed. A rough paragraph in the right place is recoverable; a
+hole in a story is not. Those passages are marked in the reader.
 
-## Local AI and privacy
+## The model
 
-OCR, inference, history, stats, and narration all run on-device. The only network request the app makes is the one-time model download the user explicitly approves.
+Gemma 4 E2B, Apache-2.0, in LiteRT-LM's `.litertlm` format:
 
-Gemma weights are never committed. Downloads are served from a self-hosted mirror configured by `snapaie.model.mirror.base.url` in `gradle.properties`, with the Gemma Terms of Use surfaced and accepted in-app before any download. Set the official SHA-256 values via `snapaie.model.sha256.e2b` / `snapaie.model.sha256.e4b` before production distribution — downloads are resumable and checksum-verified.
+| variant | size | when |
+|---|---|---|
+| `gemma-4-E2B-it-gpu.litertlm` | 1.9 GB | device has an OpenCL driver |
+| `gemma-4-E2B-it.litertlm` | 2.4 GB | everything else |
+
+From <https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm> — not gated, no
+token needed. Weights are never committed and never bundled in the APK.
+
+Delivery is described in `docs/model-delivery.md`. In short: a remote `latest.json`
+(`snapaie.model.manifest.url` in `gradle.properties`) is the only channel model facts reach
+the app through, so a new model ships without a Play release. When no URL is configured the
+app falls back to `assets/model/default-manifest.json`, so a clean checkout still has
+working AI instead of silently degrading to heuristic drafts.
+
+`ModelSessionManager` owns the engine: lazy-load on first inference, unload after 60s idle,
+unload on `onTrimMemory` and on backgrounding, single-flight behind a mutex, and a
+refcounted keep-alive so a multi-hour condense run does not reload 2 GB between passages.
+A GPU load failure retries on CPU, and an artifact is only ever deleted when a different
+proven model exists to fall back to.
+
+## Known limitations
+
+- **A full-length book takes hours.** The UI says so before you start, runs the job as
+  resumable foreground work, pauses when the device gets too hot, and lets you read what is
+  finished. It does not make it fast.
+- **The document scanner needs Google Play Services.** ML Kit's scanner gives edge
+  detection and auto-capture; without Play Services the app falls back to plain camera
+  capture, so scanning still works but you crop by hand.
+- **PDF export uses the standard PDF fonts**, which cover Western European text. Non-Latin
+  scripts are not yet supported in PDF output; EPUB and Markdown have no such limit.
 
 ## Build
 
-Open the project folder in Android Studio (the directory containing this README), sync Gradle, and run the `app` configuration. From a shell with Java 17 and the Android SDK configured:
+Open the project folder in Android Studio and run `app`. From a shell with Java 17 and the
+Android SDK:
 
 ```powershell
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:testDebugUnitTest
 ```
 
-Toolchain: AGP 8.13.2, Kotlin 2.3.21, KSP 2.3.10, Gradle 8.14.3, compileSdk 36, minSdk 31 (required by `Modifier.blur`).
+Toolchain: AGP 8.13.2, Kotlin 2.3.21, KSP 2.3.10, Gradle 8.14.3, compileSdk 36, minSdk 31
+(`Modifier.blur`). Debug APKs are large because LiteRT-LM and PDFBox ship native libraries
+for four ABIs; release builds keep only `arm64-v8a` and `armeabi-v7a`.
 
 Sources:
 
-- ML Kit Text Recognition Android docs: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
-- LiteRT-LM Android guide: https://ai.google.dev/edge/litert-lm/android
-- LiteRT-LM repository and releases: https://github.com/google-ai-edge/LiteRT-LM
+- LiteRT-LM Android guide: https://developers.google.com/edge/litert-lm/android
+- LiteRT-LM repository: https://github.com/google-ai-edge/LiteRT-LM
+- ML Kit text recognition: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
+- ML Kit document scanner: https://developers.google.com/ml-kit/vision/doc-scanner

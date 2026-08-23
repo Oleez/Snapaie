@@ -100,8 +100,19 @@ class BookViewModel(
         }
     }
 
-    /** One book's live state, recomputed as the background job writes beats. */
+    private val detailFlows = mutableMapOf<Pair<Long, Int>, StateFlow<BookDetailState>>()
+
+    /**
+     * One book's live state, recomputed as the background job writes beats.
+     *
+     * Cached per book, because this is called from composables: building the flow on each
+     * call would start a fresh combine and a fresh collector on every recomposition, and
+     * the shelf recomposes constantly while a job is running.
+     */
     fun detail(bookId: Long, pass: Int = 1): StateFlow<BookDetailState> =
+        detailFlows.getOrPut(bookId to pass) { buildDetail(bookId, pass) }
+
+    private fun buildDetail(bookId: Long, pass: Int): StateFlow<BookDetailState> =
         kotlinx.coroutines.flow.combine(
             repository.observeBook(bookId),
             repository.observeChapters(bookId),

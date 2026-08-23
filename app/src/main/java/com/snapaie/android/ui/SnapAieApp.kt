@@ -65,6 +65,9 @@ import com.snapaie.android.ui.book.BookReaderScreen
 import com.snapaie.android.ui.book.BookViewModel
 import com.snapaie.android.ui.book.BookViewModelFactory
 import com.snapaie.android.ui.book.BooksScreen
+import com.snapaie.android.ui.book.ScanTrayScreen
+import com.snapaie.android.ui.book.ScanTrayViewModel
+import com.snapaie.android.ui.book.ScanTrayViewModelFactory
 import com.snapaie.android.ui.nav.Routes
 import com.snapaie.android.ui.notifications.LocalSnapToast
 import com.snapaie.android.ui.notifications.NotificationCenterSheet
@@ -143,6 +146,8 @@ private fun MainShell(
     val viewModel: SnapAieViewModel = viewModel(factory = SnapAieViewModelFactory(container))
     val application = LocalContext.current.applicationContext as android.app.Application
     val bookViewModel: BookViewModel = viewModel(factory = BookViewModelFactory(application, container))
+    val scanTrayViewModel: ScanTrayViewModel =
+        viewModel(factory = ScanTrayViewModelFactory(application, container))
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route.orEmpty()
@@ -277,6 +282,7 @@ private fun MainShell(
                             viewModel = bookViewModel,
                             onOpenBook = { navController.navigate(Routes.bookDetail(it)) },
                             onImported = { navController.navigate(Routes.bookDetail(it)) },
+                            onScanPages = { navController.navigate(Routes.ScanTray) },
                         )
                     }
                     composable(
@@ -310,6 +316,17 @@ private fun MainShell(
                             bookId = entry.arguments?.getLong("bookId") ?: 0L,
                             viewModel = bookViewModel,
                             onBack = { navController.popBackStack() },
+                        )
+                    }
+                    composable(Routes.ScanTray) {
+                        ScanTrayScreen(
+                            viewModel = scanTrayViewModel,
+                            bookViewModel = bookViewModel,
+                            onBack = { navController.popBackStack() },
+                            onCondense = {
+                                navController.navigate(Routes.Books) { launchSingleTop = true }
+                            },
+                            onFallbackCamera = { navController.navigate(Routes.Camera) },
                         )
                     }
                     composable(Routes.Snap) {

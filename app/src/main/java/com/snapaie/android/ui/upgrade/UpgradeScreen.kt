@@ -55,7 +55,7 @@ fun UpgradeScreen(container: AppContainer, onClose: () -> Unit) {
                     Bullet("🧠 Full Forge Recall — unlimited topics, Survival, Explain It, Interleave")
                     Bullet("📤 Export to Markdown / Obsidian / Notion-flavored clipboard")
                     Bullet("📚 Batch processing — multi-page PDFs and multi-image imports")
-                    Bullet("⚡ Larger Gemma model on capable devices")
+                    Bullet("⚡ Unlimited book length and EPUB export")
                     Bullet("🎭 All 14 chat personas and chat styles")
                     Bullet("✨ Custom instructions, no branding footer on exports")
                 }
