@@ -87,6 +87,20 @@ interface BookDao {
     )
     suspend fun nextPendingBeat(bookId: Long, pass: Int): BookBeatEntity?
 
+    /**
+     * The most recent finished beat. Read once when a run starts, to recover the story
+     * ledger and the tail of the previous passage after a restart; after that the loop
+     * carries both in memory.
+     */
+    @Query(
+        """
+        SELECT * FROM book_beats
+        WHERE bookId = :bookId AND pass = :pass AND status IN ('CONDENSED', 'FALLBACK')
+        ORDER BY orderIndex DESC LIMIT 1
+        """,
+    )
+    suspend fun lastCompletedBeat(bookId: Long, pass: Int): BookBeatEntity?
+
     @Insert
     suspend fun insertBeats(entities: List<BookBeatEntity>): List<Long>
 

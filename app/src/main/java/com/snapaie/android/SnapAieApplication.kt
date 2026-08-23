@@ -7,6 +7,13 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
 import com.snapaie.android.billing.BillingBridge
+import com.snapaie.android.data.book.BookRepository
+import com.snapaie.android.data.book.BookStorage
+import com.snapaie.android.data.ingest.EpubIngestor
+import com.snapaie.android.data.ingest.PdfIngestor
+import com.snapaie.android.domain.condense.BeatCondenser
+import com.snapaie.android.domain.condense.CondensePipeline
+import com.snapaie.android.domain.scan.PromptLibrary
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.snapaie.android.data.ai.ModelRepository
 import com.snapaie.android.data.ai.download.ModelDownloadController
@@ -86,6 +93,24 @@ class SnapAieApplication : Application() {
             appScope = appScope,
         ).also { it.start() }
 
+        val bookStorage = BookStorage(applicationContext)
+        val promptLibrary = PromptLibrary(applicationContext)
+        val bookRepository = BookRepository(
+            storage = bookStorage,
+            bookDao = database.bookDao(),
+            condenseDao = database.condenseDao(),
+            assetDao = database.bookAssetDao(),
+            pdfIngestor = PdfIngestor(applicationContext, ocrProcessor),
+            epubIngestor = EpubIngestor(),
+        )
+        val condensePipeline = CondensePipeline(
+            repository = bookRepository,
+            storage = bookStorage,
+            bookDao = database.bookDao(),
+            condenser = BeatCondenser(sessionManager, promptLibrary),
+            sessionManager = sessionManager,
+        )
+
         container = AppContainer(
             database = database,
             modelRepository = modelRepository,
@@ -94,6 +119,9 @@ class SnapAieApplication : Application() {
             sessionManager = sessionManager,
             ocrProcessor = ocrProcessor,
             pdfTextExtractor = PdfTextExtractor(applicationContext, ocrProcessor),
+            bookStorage = bookStorage,
+            bookRepository = bookRepository,
+            condensePipeline = condensePipeline,
             workflowEngine = WorkflowEngine(
                 context = applicationContext,
                 sessionManager = sessionManager,
@@ -135,6 +163,9 @@ data class AppContainer(
     val sessionManager: ModelSessionManager,
     val ocrProcessor: OcrProcessor,
     val pdfTextExtractor: PdfTextExtractor,
+    val bookStorage: BookStorage,
+    val bookRepository: BookRepository,
+    val condensePipeline: CondensePipeline,
     val workflowEngine: WorkflowEngine,
     val chatEngine: ChatEngine,
     val writingEngine: WritingEngine,
