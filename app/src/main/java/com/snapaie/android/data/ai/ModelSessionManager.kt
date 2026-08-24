@@ -60,10 +60,10 @@ class ModelSessionManager(
     private val modelRepository: ModelRepository,
     private val scope: CoroutineScope,
     private val visionGuard: VisionGuard = VisionGuard(context),
-) {
+) : TextGenerator {
 
     /** False once reading images has proven fatal on this device. */
-    val visionAllowed: Boolean get() = visionGuard.isVisionAllowed
+    override val visionAllowed: Boolean get() = visionGuard.isVisionAllowed
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedKey: String? = null
@@ -85,7 +85,7 @@ class ModelSessionManager(
     private val _state = MutableStateFlow<ModelSessionState>(ModelSessionState.Unloaded)
     val state: StateFlow<ModelSessionState> = _state.asStateFlow()
 
-    fun isModelInstalled(): Boolean = modelRepository.isModelInstalled()
+    override fun isModelInstalled(): Boolean = modelRepository.isModelInstalled()
 
     /** RAM gate: warn on devices that will struggle with a multi-GB model. */
     fun ramWarning(): String? {
@@ -129,16 +129,19 @@ class ModelSessionManager(
      * glued to the body. The recogniser is still tried first because it is far faster and
      * usually right; this is the fallback for when it is not.
      */
-    fun streamWithImage(
+    override fun streamWithImage(
         prompt: String,
         imagePath: String,
-        maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: Int,
     ): Flow<String> = stream(prompt, imagePath, maxOutputTokens)
 
-    fun stream(
+    override fun stream(
         prompt: String,
-        maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: Int,
     ): Flow<String> = stream(prompt, null, maxOutputTokens)
+
+    /** Convenience for callers that do not care about the budget. */
+    fun stream(prompt: String): Flow<String> = stream(prompt, null, DEFAULT_MAX_OUTPUT_TOKENS)
 
     private fun stream(
         prompt: String,

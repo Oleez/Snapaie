@@ -96,32 +96,6 @@ class PageTextExtractor(
         }
     }
 
-    private suspend fun readWithModel(path: String): String {
-        val builder = StringBuilder()
-        sessionManager.streamWithImage(PROMPT, path).collect { builder.append(it) }
-        return clean(builder.toString())
-    }
-
-    /**
-     * Strips the framing a small model wraps around a transcription. Asking for "only the
-     * text" gets you the text plus an apology roughly one time in five.
-     */
-    private fun clean(raw: String): String {
-        var text = raw.trim()
-        if (text.startsWith("```")) {
-            text = text.removePrefix("```").substringAfter('\n', "").substringBeforeLast("```")
-        }
-        listOf(
-            "Here is the text", "Here's the text", "The text reads", "Transcription:",
-            "The page says", "Sure,", "Certainly,",
-        ).forEach { lead ->
-            if (text.startsWith(lead, ignoreCase = true)) {
-                text = text.removeRange(0, lead.length).trimStart(':', ' ', '\n')
-            }
-        }
-        return text.trim()
-    }
-
     /** The model reads from a file path, so a content URI has to be materialised first. */
     private fun localPathFor(uri: Uri): String? {
         uri.path?.let { path ->
@@ -146,15 +120,6 @@ class PageTextExtractor(
          */
         const val MAX_VISION_EDGE = 1024
 
-        val PROMPT = """
-            Read this page and type out its text exactly as it appears.
 
-            Keep the original wording, spelling and punctuation. Keep paragraph breaks.
-            Read in the order a person would: down a column before moving to the next one.
-            Skip page numbers, running heads and footers.
-
-            Output only the text from the page. No commentary, no description of the image,
-            no explanation of what you did. If there is no readable text, output nothing.
-        """.trimIndent()
     }
 }

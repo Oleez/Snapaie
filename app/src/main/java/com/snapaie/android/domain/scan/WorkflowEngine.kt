@@ -1,28 +1,26 @@
 package com.snapaie.android.domain.scan
 
-import android.content.Context
-import com.snapaie.android.data.ai.ModelSessionManager
+import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.domain.book.Segmenter
-import com.snapaie.android.domain.condense.BeatCondenser
 import com.snapaie.android.domain.condense.BeatContract
 import com.snapaie.android.domain.condense.BeatRejection
 import com.snapaie.android.domain.condense.BudgetGovernor
+import com.snapaie.android.domain.condense.ExtractiveCondenser
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withTimeout
 
 class WorkflowEngine(
-    private val context: Context,
-    private val sessionManager: ModelSessionManager,
+    private val sessionManager: TextGenerator,
+    private val prompts: PromptSource,
+    private val scanPrompts: ScanPrompts,
 ) {
     private val parser = StructuredOutputParser()
-    private val prompts = PromptLibrary(context)
-    private val condenser = BeatCondenser(sessionManager, prompts)
 
     fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Capture, "Page text captured.", isComplete = true)))
@@ -91,12 +89,12 @@ class WorkflowEngine(
         }
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Insight, "Breaking the page down…")))
 
-        var attempt = streamOnce(prompts.buildScanPrompt(draft)) { token ->
+        var attempt = streamOnce(scanPrompts.buildScanPrompt(draft)) { token ->
             emit(WorkflowEvent.Token(token))
         }
         var outcome = parser.parse(attempt.text)
         if (outcome is ParseOutcome.Unparseable && attempt.text.isNotBlank()) {
-            val retry = streamOnce(prompts.buildRepairPrompt(draft, attempt.text)) { }
+            val retry = streamOnce(scanPrompts.buildRepairPrompt(draft, attempt.text)) { }
             val retryOutcome = parser.parse(retry.text)
             if (retryOutcome is ParseOutcome.Structured) {
                 outcome = retryOutcome
@@ -122,7 +120,7 @@ class WorkflowEngine(
         if (source.length < MIN_PROSE_SOURCE_CHARS) return ""
         val budget = (Segmenter.countWords(source) * PROSE_RATIO).toInt()
             .coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-        return condenser.extractiveFallback(source, budget)
+        return ExtractiveCondenser.shorten(source, budget)
     }
 
     /** The retelling, plus why it is missing when it is. */
@@ -152,7 +150,7 @@ class WorkflowEngine(
             return ProseAttempt("", "There is not enough text on this page to shorten.")
         }
 
-        val template = runCatching { prompts.readAsset("prompts/condense_page.md") }.getOrDefault("")
+        val template = runCatching { prompts.read("prompts/condense_page.md") }.getOrDefault("")
         if (template.isBlank()) return ProseAttempt("", "The condenser is missing from this build.")
 
         val sourceWords = if (source.isNotBlank()) Segmenter.countWords(source) else TYPICAL_PAGE_WORDS
@@ -192,7 +190,7 @@ class WorkflowEngine(
         //    the prose. It is the difference between a rougher read and a blank screen,
         //    and it works with no model installed and no network.
         if (source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val extractive = condenser.extractiveFallback(source, budget)
+            val extractive = ExtractiveCondenser.shorten(source, budget)
             if (extractive.length >= MIN_KEEPABLE_PROSE_CHARS) {
                 return ProseAttempt(extractive, null)
             }
@@ -241,7 +239,7 @@ class WorkflowEngine(
     /** Collects one full model stream (with timeout), forwarding tokens to [onToken]. */
     private suspend fun streamOnce(
         prompt: String,
-        maxOutputTokens: Int = ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
         onToken: suspend (String) -> Unit,
     ): StreamAttempt {
         val accumulated = StringBuilder()
@@ -282,6 +280,7 @@ class WorkflowEngine(
 
         /** Words on a typical book page, used when nothing was recognised to measure. */
         const val TYPICAL_PAGE_WORDS = 320
+        const val DEFAULT_MAX_OUTPUT_TOKENS = 560
 
         /** Keep an imperfect retelling rather than show nothing. */
         const val MIN_KEEPABLE_PROSE_CHARS = 120

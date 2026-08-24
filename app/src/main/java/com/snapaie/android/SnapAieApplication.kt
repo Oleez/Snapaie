@@ -144,8 +144,9 @@ class SnapAieApplication : Application() {
             condensePipeline = condensePipeline,
             bookExporter = bookExporter,
             workflowEngine = WorkflowEngine(
-                context = applicationContext,
                 sessionManager = sessionManager,
+                prompts = promptLibrary,
+                scanPrompts = promptLibrary,
             ),
             chatEngine = ChatEngine(sessionManager, database.chatDao()),
             writingEngine = WritingEngine(sessionManager),

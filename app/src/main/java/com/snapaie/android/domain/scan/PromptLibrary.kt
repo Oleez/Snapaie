@@ -3,9 +3,9 @@ package com.snapaie.android.domain.scan
 import android.content.Context
 import com.snapaie.android.data.model.BookScanDraft
 
-class PromptLibrary(private val context: Context) {
+class PromptLibrary(private val context: Context) : PromptSource, ScanPrompts {
 
-    fun buildScanPrompt(draft: BookScanDraft): String {
+    override fun buildScanPrompt(draft: BookScanDraft): String {
         val guardrails = readAsset("prompts/guardrails.md")
         val orchestrator = readAsset("prompts/orchestrator.md")
         return buildString {
@@ -22,7 +22,7 @@ class PromptLibrary(private val context: Context) {
         }
     }
 
-    fun buildRepairPrompt(draft: BookScanDraft, previousOutput: String): String = buildString {
+    override fun buildRepairPrompt(draft: BookScanDraft, previousOutput: String): String = buildString {
         appendLine(readAsset("prompts/repair_retry.md"))
         appendLine()
         appendLine("Source text:")
@@ -31,6 +31,8 @@ class PromptLibrary(private val context: Context) {
         appendLine("Your previous unparseable answer (for reference, fix its format):")
         append(previousOutput.take(REPAIR_PREVIOUS_CHARS))
     }
+
+    override fun read(path: String): String = readAsset(path)
 
     fun readAsset(path: String): String =
         context.assets.open(path).bufferedReader().use { it.readText() }
