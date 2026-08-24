@@ -76,8 +76,8 @@ class ModelDownloadWorker(
         return when (terminal.status) {
             ModelDownloadStatus.COMPLETED -> {
                 showTerminalNotification(
-                    title = "Model ready",
-                    text = "${spec.displayName} is installed. Snapaie now works offline.",
+                    title = "Ready to go",
+                    text = "Offline AI is installed. snapaie now works without internet.",
                 )
                 Result.success()
             }
@@ -86,8 +86,8 @@ class ModelDownloadWorker(
                 ModelDownloadError.NETWORK -> Result.retry()
                 else -> {
                     showTerminalNotification(
-                        title = "Model download failed",
-                        text = terminal.errorMessage ?: "The download could not be completed.",
+                        title = "Download didn't finish",
+                        text = terminal.errorMessage ?: "It stopped partway. Open snapaie to try again.",
                     )
                     Result.failure()
                 }
@@ -206,7 +206,7 @@ class ModelDownloadWorker(
             status: String? = null,
         ) = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle(if (name.isBlank()) "Downloading offline AI" else "Downloading $name")
+            .setContentTitle("Downloading offline AI")
             .setContentText(status ?: "${formatBytes(done)} / ${formatBytes(total)}")
             .setSubText("$percent%")
             .setProgress(100, percent.coerceIn(0, 100), total <= 0L)

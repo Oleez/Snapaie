@@ -94,11 +94,10 @@ class SnapAieViewModel(
         viewModelScope.launch {
             var wasBusy = false
             modelState.collect { state ->
-                val installedName = state.installed?.let { "${it.modelId} ${it.version}" }
-                if (wasBusy && state.isModelInstalled && !state.isBusy && installedName != null) {
+                if (wasBusy && state.isModelInstalled && !state.isBusy) {
                     container.notificationCenter.push(
-                        message = "$installedName is ready. Every scan from here runs on-device.",
-                        title = "Model ready",
+                        message = "Offline AI is ready. Everything from here runs on this phone.",
+                        title = "Ready to go",
                         kind = NotificationKind.Update,
                     )
                 }

@@ -90,7 +90,15 @@ data class ModelSpec(
      */
     val key: String get() = "$modelId@$version"
 
-    val displayName: String get() = "$modelId $version"
+    /**
+     * What a person is shown this artifact called.
+     *
+     * Deliberately not the model id and version. Nobody downloading this is choosing
+     * between checkpoints, and a notification reading "Downloading gemma-4-e2b-it 1.0.0"
+     * tells them nothing they can act on. The real identifiers stay on [modelId] and
+     * [version] for the registry, the directory layout and update comparisons.
+     */
+    val displayName: String get() = "Offline AI"
 
     companion object {
         const val SHA256_HEX_LENGTH = 64
