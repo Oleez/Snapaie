@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
 import com.snapaie.android.billing.BillingBridge
+import com.snapaie.android.core.diagnostics.CrashLog
 import com.snapaie.android.data.book.BookRepository
 import com.snapaie.android.data.book.BookStorage
 import com.snapaie.android.data.ingest.EpubIngestor
@@ -49,6 +50,9 @@ class SnapAieApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // First thing, so a crash during the rest of startup is still recorded.
+        CrashLog.install(this)
 
         // PdfBox-Android loads its font and glyph-list resources from the APK rather than
         // the classpath, so this has to run before any PDDocument is opened.
@@ -159,9 +163,15 @@ class SnapAieApplication : Application() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-            container.sessionManager.onMemoryPressure()
-        }
+        if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) return
+
+        // Only genuine pressure justifies interrupting work in flight. UI_HIDDEN and
+        // BACKGROUND arrive every time the user switches apps, and a book condense is meant
+        // to keep running through exactly that; backgrounding is handled separately, where
+        // the keep-alive is respected.
+        val urgent = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE
+        container.sessionManager.onMemoryPressure(urgent)
     }
 }
 

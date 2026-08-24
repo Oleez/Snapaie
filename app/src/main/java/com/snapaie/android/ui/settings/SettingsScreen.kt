@@ -39,6 +39,10 @@ import com.snapaie.android.core.design.ThemeMode
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.ai.model.ModelUpdateStatus
 import com.snapaie.android.domain.chat.Languages
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import com.snapaie.android.core.diagnostics.CrashLog
+import com.snapaie.android.ui.notifications.LocalSnapToast
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.chat.ChatAppearance
 import com.snapaie.android.ui.nav.Routes
@@ -52,6 +56,8 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     val isPro by viewModel.isPro.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
+    val toast = LocalSnapToast.current
     var showReset by remember { mutableStateOf(false) }
     var languageQuery by remember { mutableStateOf("") }
 
@@ -284,6 +290,36 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                         Text(if (modelState.isCheckingManifest) "Checking…" else "Check for updates")
                     }
                     OutlinedButton(onClick = { viewModel.deleteModelWeights() }) { Text("Remove download") }
+                }
+            }
+        }
+
+        item {
+            // Only appears when there is something to report, so it stays invisible for
+            // everyone whose app is behaving.
+            val crashReport = remember { CrashLog.read() }
+            if (crashReport.isNotBlank()) {
+                SettingsCard("Problem report") {
+                    Text(
+                        "snapaie closed unexpectedly recently. You can send this to the " +
+                            "developer to help get it fixed. It contains no page content.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        crashReport.take(400),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            clipboard.setText(AnnotatedString(crashReport))
+                            toast.show("Report copied")
+                        }) { Text("Copy report") }
+                        OutlinedButton(onClick = {
+                            CrashLog.clear()
+                            toast.show("Report cleared")
+                        }) { Text("Clear") }
+                    }
                 }
             }
         }

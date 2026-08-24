@@ -55,7 +55,7 @@ Text to analyze:
 ${text.take(2000)}
         """.trimIndent()
 
-        val raw = sessionManager.generate(prompt)
+        val raw = sessionManager.generateOrEmpty(prompt)
         for (candidate in JsonRepair.candidates(raw)) {
             val parsed = runCatching { json.decodeFromString<CefrPayload>(candidate) }.getOrNull()
             if (parsed != null && (parsed.B2.isNotEmpty() || parsed.C1.isNotEmpty() || parsed.C2.isNotEmpty())) {

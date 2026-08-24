@@ -217,7 +217,7 @@ fun ScanHubScreen(
                     ) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Compress into clarity")
+                        Text("Condense this page")
                     }
                 }
             }
@@ -257,7 +257,7 @@ fun CompressionRunScreen(viewModel: SnapAieViewModel, navController: NavHostCont
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Compressing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("Condensing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
         }
         item {
             LiquidGlassSurface {

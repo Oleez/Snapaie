@@ -4,7 +4,10 @@ import com.snapaie.android.data.local.ChatSessionEntity
 import com.snapaie.android.data.local.KnowledgeScan
 import com.snapaie.android.data.local.NoteEntity
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 enum class LibraryTab(val label: String) {
     Explanations("Explanations"),
@@ -152,4 +155,42 @@ object LibraryFilter {
     }
 
     private const val SEVEN_DAYS_MILLIS = 7L * 24 * 60 * 60 * 1000
+}
+
+/**
+ * Groups scans into dated sections for the history view.
+ *
+ * A flat reverse-chronological list answers "what is newest" but not "what did I read on
+ * Tuesday", which is the question someone actually returns to their history with. Days are
+ * calendar days in the device's own zone, matching how [LibraryRange.Today] already works,
+ * so the two never disagree about where midnight is.
+ */
+object LibraryHistory {
+
+    data class Day(val label: String, val startOfDayMillis: Long, val scans: List<KnowledgeScan>)
+
+    fun byDay(
+        scans: List<KnowledgeScan>,
+        zone: ZoneId = ZoneId.systemDefault(),
+        today: LocalDate = LocalDate.now(zone),
+    ): List<Day> = scans
+        .sortedByDescending { it.createdAtMillis }
+        .groupBy { Instant.ofEpochMilli(it.createdAtMillis).atZone(zone).toLocalDate() }
+        .map { (date, group) ->
+            Day(
+                label = labelFor(date, today),
+                startOfDayMillis = date.atStartOfDay(zone).toInstant().toEpochMilli(),
+                scans = group,
+            )
+        }
+        .sortedByDescending { it.startOfDayMillis }
+
+    private fun labelFor(date: LocalDate, today: LocalDate): String = when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> {
+            val pattern = if (date.year == today.year) "d MMMM" else "d MMMM yyyy"
+            date.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
+        }
+    }
 }

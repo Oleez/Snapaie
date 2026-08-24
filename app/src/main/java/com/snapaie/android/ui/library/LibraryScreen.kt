@@ -63,6 +63,7 @@ import com.snapaie.android.data.local.NoteEntity
 import com.snapaie.android.data.preferences.LibraryFilters
 import com.snapaie.android.domain.chat.Persona
 import com.snapaie.android.domain.library.LibraryFilter
+import com.snapaie.android.domain.library.LibraryHistory
 import com.snapaie.android.domain.library.LibraryRange
 import com.snapaie.android.domain.library.LibrarySort
 import com.snapaie.android.domain.library.LibraryTab
@@ -317,8 +318,32 @@ fun LibraryScreen(
                 if (visibleScans.isEmpty()) {
                     item { EmptyState(total = scans.size, query = query, kind = "scans", hint = "Snap a page from the Snap tab.") }
                 }
-                items(visibleScans, key = { it.id }) { scan ->
-                    ScanCard(scan = scan, onOpen = { navController.navigate(Routes.scanDetail(scan.id)) })
+                // Dated sections rather than one flat list: people come back to their
+                // history asking "what did I read on Tuesday", not "what is newest".
+                LibraryHistory.byDay(visibleScans).forEach { day ->
+                    item(key = "day-${day.startOfDayMillis}") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                day.label,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                if (day.scans.size == 1) "1 page" else "${day.scans.size} pages",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(day.scans, key = { it.id }) { scan ->
+                        ScanCard(scan = scan, onOpen = { navController.navigate(Routes.scanDetail(scan.id)) })
+                    }
                 }
             }
 

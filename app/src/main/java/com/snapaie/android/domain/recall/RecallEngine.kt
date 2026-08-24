@@ -212,7 +212,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
                 append(priorTopic.content.take(3000))
             }
         }
-        val raw = sessionManager.generate(prompt)
+        val raw = sessionManager.generateOrEmpty(prompt)
         for (candidate in JsonRepair.candidates(raw, arrayWrapKey = "questions")) {
             val parsed = runCatching { json.decodeFromString<QuestionsPayload>(candidate) }.getOrNull()
             if (parsed != null && parsed.questions.isNotEmpty()) {
@@ -240,7 +240,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
             appendLine("PRIMARY source material:")
             append(topic.content.take(4000))
         }
-        val raw = sessionManager.generate(prompt)
+        val raw = sessionManager.generateOrEmpty(prompt)
         for (candidate in JsonRepair.candidates(raw, arrayWrapKey = "flashcards")) {
             val parsed = runCatching { json.decodeFromString<FlashcardsPayload>(candidate) }.getOrNull()
             if (parsed != null && parsed.flashcards.isNotEmpty()) return parsed.flashcards
@@ -276,7 +276,7 @@ Generate $count cloze-style True/False statements: the statement should contain 
             appendLine("USER ANSWER:")
             append(userAnswer.take(4000))
         }
-        val raw = sessionManager.generate(prompt)
+        val raw = sessionManager.generateOrEmpty(prompt)
         for (candidate in JsonRepair.candidates(raw)) {
             val parsed = runCatching { json.decodeFromString<FeynmanScore>(candidate) }.getOrNull()
             if (parsed != null) return parsed.copy(score = parsed.score.coerceIn(0, 100))

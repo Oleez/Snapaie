@@ -20,15 +20,15 @@ class WorkflowEngine(
 
     fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Capture, "Page text captured.", isComplete = true)))
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "OCR text ready for compression.", isComplete = true)))
+        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "Page text ready.", isComplete = true)))
 
         if (!sessionManager.isModelInstalled()) {
-            emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Instant offline draft — download the model for full AI.", isComplete = true)))
+            emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Quick draft. Turn on offline AI for the full result.", isComplete = true)))
             emit(WorkflowEvent.Result(finalize(draft, parser.heuristicOnly(draft)), fromModel = false))
             return@flow
         }
 
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Compressing meaning with on-device Gemma…")))
+        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Condensing the page…")))
 
         var attempt = streamOnce(prompts.buildScanPrompt(draft)) { token ->
             emit(WorkflowEvent.Token(token))

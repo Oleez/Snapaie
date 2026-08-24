@@ -5,6 +5,7 @@ import android.content.Context
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.snapaie.android.core.diagnostics.CrashLog
 import com.snapaie.android.data.ai.model.InstalledModel
 import com.snapaie.android.data.ai.model.ModelBackend
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +23,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.currentCoroutineContext
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -60,6 +63,13 @@ class ModelSessionManager(
 
     /** Non-zero while a long-running job (e.g. a book condense) needs the engine resident. */
     private val keepAlive = AtomicInteger(0)
+
+    /**
+     * The coroutine currently generating, so an urgent unload can stop it *before* freeing
+     * the weights it is reading from.
+     */
+    @Volatile
+    private var activeGeneration: Job? = null
 
     @Volatile
     private var streaming = false
@@ -120,6 +130,17 @@ class ModelSessionManager(
         }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Generation for callers that already have a sensible answer for "no usable output".
+     *
+     * Recall cards, vocabulary and scoring all fall back cleanly when the model returns
+     * something unparseable, and an engine that failed to load is the same situation from
+     * their point of view — so it should not arrive as an exception thrown into whatever
+     * coroutine the screen happened to launch.
+     */
+    suspend fun generateOrEmpty(prompt: String): String =
+        runCatching { generate(prompt) }.getOrDefault("")
+
     /** Convenience non-streaming generation (chat/writing/vocab/recall engines). */
     suspend fun generate(prompt: String): String {
         val builder = StringBuilder()
@@ -127,10 +148,16 @@ class ModelSessionManager(
         return builder.toString()
     }
 
-    /** Called from Application.onTrimMemory at TRIM_MEMORY_RUNNING_LOW or worse. */
-    fun onMemoryPressure() {
-        // Overrides keep-alive: a long job pausing beats a process death.
-        scope.launch { unload(force = true) }
+    /**
+     * Called from Application.onTrimMemory.
+     *
+     * [urgent] separates "the system is a bit tight" from "we are about to be killed". At
+     * the milder level a generation in flight is left alone and the engine is dropped once
+     * it finishes, because tearing down mid-sentence to reclaim memory we are not yet being
+     * asked for costs the user their answer for nothing.
+     */
+    fun onMemoryPressure(urgent: Boolean) {
+        scope.launch { if (urgent) unload(force = true) else unload(force = false) }
     }
 
     /** Called when the app process leaves the foreground (never hold weights backgrounded). */
@@ -139,15 +166,47 @@ class ModelSessionManager(
         scope.launch { unload(force = false) }
     }
 
+    /**
+     * Releases the engine.
+     *
+     * The close must never overlap a generation. Freeing the weights while native code is
+     * still reading them is a use-after-free, which arrives as a process-level SIGSEGV that
+     * no runCatching in the UI can survive — and the old forced path did exactly that,
+     * closing outside the mutex whenever memory got tight, which is precisely when a
+     * multi-GB model is resident and someone is generating text.
+     *
+     * So a forced unload now cancels the generation first and then takes the same mutex the
+     * generation holds. Acquiring it is the proof that nothing is in flight. If the native
+     * side will not come back promptly we give up and keep the memory rather than close
+     * underneath it; a heavy process beats a dead one.
+     */
     suspend fun unload(force: Boolean) {
-        if (!force && streaming) return
-        if (force || mutex.tryLock()) {
-            try {
-                closeEngine()
-            } finally {
-                if (!force) mutex.unlock()
+        if (!force) {
+            if (streaming) return
+            if (mutex.tryLock()) {
+                try {
+                    closeEngine()
+                } finally {
+                    mutex.unlock()
+                }
             }
+            return
         }
+
+        activeGeneration?.cancel()
+        val closed = withTimeoutOrNull(FORCED_UNLOAD_TIMEOUT_MS) {
+            mutex.withLock { closeEngine() }
+            true
+        }
+        if (closed == null) {
+            _state.value = ModelSessionState.Error("Still finishing the last request.")
+        }
+    }
+
+    private fun friendly(error: Throwable): String = when {
+        error is ModelNotInstalledException -> "offline AI is not downloaded yet"
+        error.message?.contains("memory", ignoreCase = true) == true -> "this device ran out of memory"
+        else -> "something went wrong. Try again."
     }
 
     private suspend fun ensureEngine(): Engine {
@@ -180,7 +239,10 @@ class ModelSessionManager(
                             backend = backend.toRuntimeBackend(),
                             cacheDir = context.cacheDir.absolutePath,
                         ),
-                    ).also { it.initialize() }
+                    ).also {
+                        CrashLog.breadcrumb("loading offline AI on $backend")
+                        it.initialize()
+                    }
                 }
             }.getOrElse { error ->
                 lastError = error
@@ -254,5 +316,8 @@ class ModelSessionManager(
     private companion object {
         const val IDLE_UNLOAD_MS = 60_000L
         const val MIN_COMFORTABLE_RAM_GB = 4
+
+        /** How long a forced unload waits for an in-flight generation to stop. */
+        const val FORCED_UNLOAD_TIMEOUT_MS = 4_000L
     }
 }

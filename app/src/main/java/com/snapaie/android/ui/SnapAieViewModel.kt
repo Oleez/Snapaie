@@ -208,6 +208,11 @@ class SnapAieViewModel(
             it.copy(phases = emptyList(), streamText = "", result = null, lastSavedScanId = null, isRunning = true)
         }
         job = viewModelScope.launch {
+            // An inference failure here used to escape the collector, and an exception
+            // escaping a viewModelScope coroutine reaches the default handler and takes the
+            // whole app down. A snap that cannot run should leave a message on the screen,
+            // not close the app.
+            runCatching {
             container.workflowEngine.run(draft).collect { event ->
                 when (event) {
                     is WorkflowEvent.Phase -> _uiState.update { it.copy(phases = it.phases + event.update) }
@@ -238,6 +243,19 @@ class SnapAieViewModel(
                             ctaLabel = "Open scan",
                         )
                     }
+                }
+            }
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        isRunning = false,
+                        ocrError = when {
+                            !container.sessionManager.isModelInstalled() ->
+                                "Turn on offline AI to condense this page."
+                            else -> "That did not finish. Try again."
+                        },
+                    )
                 }
             }
         }

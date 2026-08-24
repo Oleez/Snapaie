@@ -38,6 +38,7 @@ import com.snapaie.android.domain.writing.WritingDialect
 import com.snapaie.android.domain.writing.WritingRequest
 import com.snapaie.android.domain.writing.WritingStyle
 import com.snapaie.android.domain.writing.WritingTool
+import com.snapaie.android.core.diagnostics.CrashLog
 import com.snapaie.android.ui.SnapAieViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -60,6 +61,7 @@ fun WritingScreen(viewModel: SnapAieViewModel, navController: NavHostController)
         job?.cancel()
         output = ""
         running = true
+        CrashLog.breadcrumb("writing assistant: ${request.tool.id}")
         job = scope.launch {
             runCatching {
                 engine.run(
