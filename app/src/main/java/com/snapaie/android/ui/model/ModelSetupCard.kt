@@ -37,7 +37,6 @@ import com.snapaie.android.ui.scan.formatBytes
 @Composable
 fun ModelSetupCard(
     modelState: ModelUiState,
-    licenseAccepted: Boolean,
     onDownload: (Boolean) -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
@@ -46,7 +45,6 @@ fun ModelSetupCard(
 ) {
     val download = modelState.download
     val spec = modelState.downloadableSpec
-    var showLicense by remember { mutableStateOf(false) }
     // Defaults to Wi-Fi because two gigabytes over cellular is a bill, not a preference.
     var wifiOnly by remember { mutableStateOf(true) }
 
@@ -56,15 +54,15 @@ fun ModelSetupCard(
     LiquidGlassSurface {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                if (modelState.hasUpdateAvailable) "A newer offline model is available" else "Enable full on-device AI",
+                if (modelState.hasUpdateAvailable) "An update is ready" else "Turn on offline AI",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 when {
                     spec != null && modelState.hasUpdateAvailable ->
-                        "${spec.modelId} ${spec.version} (${formatBytes(spec.expectedBytes)}). Your current model keeps working until the new one is verified."
+                        "A newer version is ready (${formatBytes(spec.expectedBytes)}). Everything keeps working while it downloads."
                     spec != null ->
-                        "Download ${spec.modelId} ${spec.version} once (${formatBytes(spec.expectedBytes)}) and every scan runs entirely on this phone — airplane mode included. Until then you get instant offline drafts."
+                        "One ${formatBytes(spec.expectedBytes)} download, and everything happens on your phone from then on — no internet, no account, nothing sent anywhere. Until then you get instant basic results."
                     else -> modelStatusMessage(modelState.updateStatus)
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -123,7 +121,7 @@ fun ModelSetupCard(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "Keep downloading in the background — you can leave the app.",
+                        "You can leave the app — it keeps going in the background.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -142,7 +140,7 @@ fun ModelSetupCard(
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
                     Text(
-                        "${formatBytes(download.downloadedBytes)} of ${formatBytes(download.totalBytes)} saved.",
+                        "${formatBytes(download.downloadedBytes)} of ${formatBytes(download.totalBytes)} saved so far.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -155,29 +153,21 @@ fun ModelSetupCard(
                     OutlinedButton(onClick = { onCheckAgain() }) { Text("Check again") }
                 }
 
-                !licenseAccepted && !showLicense -> {
-                    Button(onClick = { showLicense = true }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Download model")
-                    }
-                }
-
-                !licenseAccepted -> {
-                    Text(
-                        "This model is provided under its publisher's licence terms, shown at the download source. By downloading you agree to those terms. The model runs only on your device.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = {
+                else -> {
+                    Button(
+                        onClick = {
                             onAcceptLicense()
                             onDownload(wifiOnly)
-                        }) { Text("Agree & download") }
-                        TextButton(onClick = { showLicense = false }) { Text("Not now") }
-                    }
-                }
-
-                else -> {
-                    Button(onClick = { onDownload(wifiOnly) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (modelState.hasUpdateAvailable) "Download update" else "Download model")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            if (modelState.hasUpdateAvailable) {
+                                "Download update"
+                            } else {
+                                "Download (${spec?.let { formatBytes(it.expectedBytes) } ?: ""})"
+                            },
+                        )
                     }
                 }
             }
@@ -193,21 +183,22 @@ fun ModelSetupCard(
 
 private fun modelStatusMessage(status: ModelUpdateStatus): String = when (status) {
     is ModelUpdateStatus.NotConfigured ->
-        "Offline AI is not configured in this build yet. Scans use instant offline drafts."
+        "Offline AI isn't available in this version yet. You still get instant basic results."
     is ModelUpdateStatus.CheckFailed ->
-        "${status.message} Your installed model keeps working."
-    is ModelUpdateStatus.Unavailable -> status.message
-    is ModelUpdateStatus.Incompatible -> status.message
-    is ModelUpdateStatus.UpToDate ->
-        "You have the current model (${status.installed.modelId} ${status.installed.version})."
-    else -> "Checking for the current model…"
+        "Couldn't check for an update right now. Everything still works."
+    is ModelUpdateStatus.Unavailable ->
+        "Nothing to download right now. Try again in a moment."
+    is ModelUpdateStatus.Incompatible ->
+        "This update needs a newer version of the app."
+    is ModelUpdateStatus.UpToDate -> "You're up to date."
+    else -> "Checking…"
 }
 
 private fun downloadProgressLabel(download: ModelDownloadState): String = when (download.status) {
-    ModelDownloadStatus.CHECKING -> "Checking…"
-    ModelDownloadStatus.PREPARING -> "Preparing…"
-    ModelDownloadStatus.VERIFYING -> "Verifying integrity…"
-    ModelDownloadStatus.INSTALLING -> "Installing…"
+    ModelDownloadStatus.QUEUED -> "Waiting to start…"
+    ModelDownloadStatus.CHECKING, ModelDownloadStatus.PREPARING -> "Getting ready…"
+    ModelDownloadStatus.VERIFYING -> "Almost done…"
+    ModelDownloadStatus.INSTALLING -> "Finishing up…"
     else -> buildString {
         append("${formatBytes(download.downloadedBytes)} / ${formatBytes(download.totalBytes)}")
         append(" · ${download.percent}%")

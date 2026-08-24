@@ -187,7 +187,7 @@ private fun ModelOnboardingStep(
         when {
             modelState.isModelInstalled -> {
                 Text(
-                    "Offline AI is ready — ${modelState.installed?.modelId.orEmpty()} is on this device.",
+                    "Offline AI is ready to use.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -206,9 +206,9 @@ private fun ModelOnboardingStep(
 
             spec != null -> {
                 Text(
-                    "${spec.modelId} · ${formatBytes(spec.expectedBytes)} · Apache-2.0. " +
-                        "Downloaded once, then every page you read is processed on this phone — " +
-                        "no account, no upload, works in airplane mode.",
+                    "A one-time ${formatBytes(spec.expectedBytes)} download. After that everything " +
+                        "happens on your phone — no account, no internet, and nothing you read is " +
+                        "ever sent anywhere.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -224,7 +224,7 @@ private fun ModelOnboardingStep(
 
             else -> {
                 Text(
-                    "No model is reachable right now. You can turn offline AI on later from Settings.",
+                    "Nothing to download right now. You can turn offline AI on later from Settings.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

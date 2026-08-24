@@ -95,7 +95,6 @@ fun BooksScreen(
         item {
             ModelSetupCard(
                 modelState = modelState,
-                licenseAccepted = settings.gemmaLicenseAccepted,
                 onDownload = viewModel::downloadModel,
                 onPause = viewModel::pauseModelDownload,
                 onCancel = viewModel::cancelModelDownload,

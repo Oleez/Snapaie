@@ -129,7 +129,6 @@ fun ScanHubScreen(
         item {
             ModelSetupCard(
                 modelState = modelState,
-                licenseAccepted = settings.gemmaLicenseAccepted,
                 onDownload = viewModel::downloadModel,
                 onPause = viewModel::pauseModelDownload,
                 onCancel = viewModel::cancelModelDownload,
@@ -294,7 +293,7 @@ fun CompressionRunScreen(viewModel: SnapAieViewModel, navController: NavHostCont
             item {
                 LiquidGlassSurface {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Live from Gemma", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        Text("Working…", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                         Text(state.streamText.takeLast(1200), style = MaterialTheme.typography.bodySmall)
                     }
                 }

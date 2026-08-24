@@ -299,7 +299,7 @@ fun RapidFireScreen(viewModel: SnapAieViewModel, navController: NavHostControlle
         when {
             loading -> LoadingBlock("Forging 10 cards from your topic…")
             cards.isEmpty() -> {
-                Text("Could not generate cards — is the model downloaded?", color = DesignTokens.ForgeText)
+                Text("Couldn't make cards. Turn on offline AI from the Books tab first.", color = DesignTokens.ForgeText)
                 OutlinedButton(onClick = { navController.popBackStack() }) { Text("Back") }
             }
             finished -> {
@@ -421,7 +421,7 @@ fun SurvivalScreen(viewModel: SnapAieViewModel, navController: NavHostController
         when {
             loading -> LoadingBlock("One life. Endless cards. Generating…")
             cards.isEmpty() -> {
-                Text("Could not generate cards — is the model downloaded?", color = DesignTokens.ForgeText)
+                Text("Couldn't make cards. Turn on offline AI from the Books tab first.", color = DesignTokens.ForgeText)
                 OutlinedButton(onClick = { navController.popBackStack() }) { Text("Back") }
             }
             !alive -> {

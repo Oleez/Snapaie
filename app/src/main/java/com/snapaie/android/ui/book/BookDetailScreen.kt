@@ -81,7 +81,6 @@ fun BookDetailScreen(
         item {
             ModelSetupCard(
                 modelState = modelState,
-                licenseAccepted = settings.gemmaLicenseAccepted,
                 onDownload = viewModel::downloadModel,
                 onPause = viewModel::pauseModelDownload,
                 onCancel = viewModel::cancelModelDownload,
@@ -138,7 +137,7 @@ fun BookDetailScreen(
                             Column(Modifier.fillMaxWidth(0.75f)) {
                                 Text("Only while charging", style = MaterialTheme.typography.bodyMedium)
                                 Text(
-                                    "Recommended. This runs for hours and works the GPU hard.",
+                                    "Recommended. This runs for hours and uses a lot of battery.",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -213,9 +212,9 @@ private fun EstimateLine(
             buildString {
                 append("Roughly ")
                 append(if (hours < 1f) "under an hour" else "${hours.toInt()}–${hours.toInt() + 2} hours")
-                append(" on this device. It runs in the background; you can close the app.")
+                append(". It runs in the background, so you can close the app.")
                 if (ladder) {
-                    append(" At this length it goes via a 30% edition first, which stays readable on its own.")
+                    append(" At this length it makes a longer version first, which you can read too.")
                 }
             },
             style = MaterialTheme.typography.labelSmall,
@@ -263,9 +262,8 @@ private fun ProgressCard(
 
             if (state.fallbackCount > 0) {
                 Text(
-                    "${state.fallbackCount} passage(s) were written from the source text rather than " +
-                        "retold, so nothing is missing but the prose there is rougher. They are marked " +
-                        "in the reader.",
+                    "${state.fallbackCount} passage(s) came out rough — nothing is missing, but the " +
+                        "writing there is closer to the original. They are marked as you read.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

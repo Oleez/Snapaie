@@ -129,7 +129,7 @@ private fun BeatBlock(
         if (BeatStatus.fromStored(beat.status) == BeatStatus.FALLBACK) {
             AssistChip(
                 onClick = onCompare,
-                label = { Text("Rough passage — taken from the source") },
+                label = { Text("Rough patch — kept from the original") },
             )
         }
 

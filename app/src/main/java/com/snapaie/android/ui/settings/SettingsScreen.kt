@@ -234,20 +234,20 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
         }
 
         item {
-            SettingsCard("Local model") {
+            SettingsCard("Offline AI") {
                 val installed = modelState.installed
                 Text(
                     if (installed != null) {
-                        "Installed: ${installed.modelId} ${installed.version} — inference runs fully offline."
+                        "Ready. Everything runs on this phone, with no internet."
                     } else {
-                        "No model installed. Scans use instant offline drafts."
+                        "Not downloaded yet. You get instant basic results until then."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 when (val status = modelState.updateStatus) {
                     is ModelUpdateStatus.UpdateAvailable -> Text(
-                        "Update available: ${status.spec.version}. Download it from the Snap tab.",
+                        "An update is ready. You can download it from the Books tab.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -262,7 +262,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                         color = MaterialTheme.colorScheme.error,
                     )
                     is ModelUpdateStatus.NotConfigured -> Text(
-                        "No model manifest is configured in this build.",
+                        "Offline AI isn't available in this version yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -272,7 +272,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Text(
-                    "The model is downloaded separately from the app and stays on this device. It is used under its publisher's licence terms.",
+                    "The download happens once and stays on this device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -283,7 +283,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                     ) {
                         Text(if (modelState.isCheckingManifest) "Checking…" else "Check for updates")
                     }
-                    OutlinedButton(onClick = { viewModel.deleteModelWeights() }) { Text("Delete model") }
+                    OutlinedButton(onClick = { viewModel.deleteModelWeights() }) { Text("Remove download") }
                 }
             }
         }
@@ -291,11 +291,11 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
         item {
             SettingsCard("Privacy") {
                 Text(
-                    "snapaie never sends your pages anywhere. OCR, AI, history, and narration all run on this device — it works with airplane mode on and costs zero data.",
+                    "snapaie never sends your pages anywhere. Reading, writing, history and narration all happen on this device — it works with airplane mode on and costs zero data.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    "The only network request the app ever makes is the one-time model download you approve.",
+                    "The one-time download you approve is the only thing this app ever sends or fetches.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -314,7 +314,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
         AlertDialog(
             onDismissRequest = { showReset = false },
             title = { Text("Factory reset?") },
-            text = { Text("Deletes every scan, chat, note, Forge topic, and setting on this device. The downloaded model is removed too. This cannot be undone.") },
+            text = { Text("Deletes every scan, chat, note, Forge topic, and setting on this device. The download is removed too. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     showReset = false
