@@ -143,7 +143,11 @@ class WorkflowEngine(
         onToken: suspend (String) -> Unit,
     ): ProseAttempt {
         val source = draft.pageText.trim()
-        val hasImage = draft.imagePath.isNotBlank() && java.io.File(draft.imagePath).isFile
+        // Skipped outright once images have proven fatal here, so a device that cannot do
+        // this goes straight to the text path instead of dying to find out again.
+        val hasImage = sessionManager.visionAllowed &&
+            draft.imagePath.isNotBlank() &&
+            java.io.File(draft.imagePath).isFile
         if (!hasImage && source.length < MIN_PROSE_SOURCE_CHARS) {
             return ProseAttempt("", "There is not enough text on this page to shorten.")
         }

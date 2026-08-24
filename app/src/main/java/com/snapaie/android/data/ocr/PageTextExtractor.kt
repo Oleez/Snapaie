@@ -1,6 +1,8 @@
 package com.snapaie.android.data.ocr
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.domain.scan.TextQuality
@@ -43,8 +45,56 @@ class PageTextExtractor(
         PageText(recognised, sourceFor(recognised))
     }
 
-    /** A local copy of [uri] the model can read from, or null when it cannot be made. */
-    suspend fun localImagePath(uri: Uri): String? = withContext(Dispatchers.IO) { localPathFor(uri) }
+    /**
+     * A local copy of [uri] the model can read from, scaled down first.
+     *
+     * A phone camera produces twelve megapixels. A vision encoder does not want them: it
+     * tiles what it is given, and every tile is more tokens, more memory and more time —
+     * for a page of text, all spent resolving grain rather than letters. Capping the long
+     * edge keeps one page to roughly one tile, which is the difference between a request
+     * that fits in the context window and one that overruns it.
+     */
+    suspend fun localImagePath(uri: Uri): String? = withContext(Dispatchers.IO) {
+        val source = localPathFor(uri) ?: return@withContext null
+        runCatching { downscale(source) }.getOrDefault(source)
+    }
+
+    private fun downscale(path: String): String {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+        if (longEdge <= 0 || longEdge <= MAX_VISION_EDGE) return path
+
+        var sample = 1
+        while (longEdge / (sample * 2) >= MAX_VISION_EDGE) sample *= 2
+        val bitmap = BitmapFactory.decodeFile(
+            path,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: return path
+
+        val scale = MAX_VISION_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height)
+        val scaled = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt().coerceAtLeast(1),
+                (bitmap.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+        } else {
+            bitmap
+        }
+
+        val target = File(context.cacheDir, "page-vision-${System.currentTimeMillis()}.jpg")
+        return try {
+            target.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            target.absolutePath
+        } catch (error: Exception) {
+            path
+        } finally {
+            if (scaled !== bitmap && !scaled.isRecycled) scaled.recycle()
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
 
     private suspend fun readWithModel(path: String): String {
         val builder = StringBuilder()
@@ -90,6 +140,12 @@ class PageTextExtractor(
         if (text.isBlank()) TextSource.NONE else TextSource.RECOGNISER
 
     private companion object {
+        /**
+         * Long edge handed to the vision encoder. Enough to read body text on a book page,
+         * small enough to stay near a single tile.
+         */
+        const val MAX_VISION_EDGE = 1024
+
         val PROMPT = """
             Read this page and type out its text exactly as it appears.
 

@@ -59,7 +59,11 @@ class ModelSessionManager(
     private val context: Context,
     private val modelRepository: ModelRepository,
     private val scope: CoroutineScope,
+    private val visionGuard: VisionGuard = VisionGuard(context),
 ) {
+
+    /** False once reading images has proven fatal on this device. */
+    val visionAllowed: Boolean get() = visionGuard.isVisionAllowed
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedKey: String? = null
@@ -162,11 +166,15 @@ class ModelSessionManager(
                         maxOutputToken = maxOutputTokens,
                     ),
                 ).use { conversation ->
-                    val request = if (imagePath != null) {
-                        Contents.of(Content.ImageFile(imagePath), Content.Text(prompt))
+                    val withImage = imagePath != null && visionGuard.isVisionAllowed
+                    val request = if (withImage) {
+                        Contents.of(Content.ImageFile(imagePath!!), Content.Text(prompt))
                     } else {
                         Contents.of(prompt)
                     }
+                    // Flag raised before the handover and lowered after, so a process that
+                    // never comes back is detectable at the next launch.
+                    if (withImage) visionGuard.beginVisionCall()
                     conversation.sendMessageAsync(request)
                         .catch { error -> send("\nLiteRT-LM stream error: ${error.message}") }
                         .collect { message -> send(message.toString()) }
@@ -302,7 +310,15 @@ class ModelSessionManager(
                             // to the text backend meant a build whose image encoder cannot
                             // run there failed to initialise at all — taking every feature
                             // down, not just the ones that read pictures.
-                            maxNumTokens = MAX_CONTEXT_TOKENS,
+                            // Both of these were wrong and both crash natively rather
+                            // than throwing. maxNumImages was never set, so the engine was
+                            // built with no image buffers and then handed a picture. And
+                            // 2K of context cannot hold an encoded image plus a prompt plus
+                            // a reply — a vision encoder emits hundreds of tokens per tile,
+                            // and overflowing the window corrupts memory instead of
+                            // reporting anything.
+                            maxNumImages = if (visionAllowed) MAX_IMAGES else 0,
+                            maxNumTokens = if (visionAllowed) VISION_CONTEXT_TOKENS else MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),
                     ).also {
@@ -392,6 +408,10 @@ class ModelSessionManager(
          * inside it, and a smaller window means faster prefill and less resident memory.
          */
         const val MAX_CONTEXT_TOKENS = 2_048
+
+        /** Room for an encoded page image alongside the prompt and the reply. */
+        const val VISION_CONTEXT_TOKENS = 4_096
+        const val MAX_IMAGES = 1
 
         /** Roughly 400 words, which is more than any single answer here needs. */
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560

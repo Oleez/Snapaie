@@ -23,6 +23,7 @@ import com.snapaie.android.data.ai.download.ModelDownloader
 import com.snapaie.android.data.ai.model.ModelManifestRepository
 import com.snapaie.android.data.ai.model.ModelRegistry
 import com.snapaie.android.data.ai.ModelSessionManager
+import com.snapaie.android.data.ai.VisionGuard
 import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.MIGRATION_2_3
 import com.snapaie.android.data.local.SnapAieDatabase
@@ -86,10 +87,14 @@ class SnapAieApplication : Application() {
             downloadController = downloadController,
             scope = appScope,
         )
+        // Read before anything can start a new one: a flag still raised from last time
+        // means the process died inside a vision call.
+        val visionGuard = VisionGuard(applicationContext).also { it.recordStartup() }
         val sessionManager = ModelSessionManager(
             context = applicationContext,
             modelRepository = modelRepository,
             scope = appScope,
+            visionGuard = visionGuard,
         )
         val ocrProcessor = OcrProcessor(applicationContext)
 
