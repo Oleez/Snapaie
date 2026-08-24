@@ -44,6 +44,16 @@ class VisionGuard(context: Context) {
         prefs.edit().putBoolean(KEY_IN_FLIGHT, false).apply()
     }
 
+    /**
+     * Switches images off for good on this device.
+     *
+     * For failures the runtime actually reports — a missing image encoder — rather than
+     * the silent kind. There is nothing to retry, so it goes straight past the strikes.
+     */
+    fun disableVision() {
+        prefs.edit().putInt(KEY_STRIKES, MAX_STRIKES).putBoolean(KEY_IN_FLIGHT, false).apply()
+    }
+
     /** Lets someone who has fixed their situation try again. */
     fun reset() {
         prefs.edit().putInt(KEY_STRIKES, 0).putBoolean(KEY_IN_FLIGHT, false).apply()

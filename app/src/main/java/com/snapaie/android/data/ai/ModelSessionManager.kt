@@ -145,9 +145,13 @@ class ModelSessionManager(
         imagePath: String?,
         maxOutputTokens: Int,
     ): Flow<String> = channelFlow {
+        // Resolved before the lock so the finally block can lower the in-flight flag even
+        // if the engine never loads.
+        val withImage = imagePath != null && visionGuard.isVisionAllowed
         mutex.withLock {
             idleUnloadJob?.cancel()
             streaming = true
+            activeGeneration = currentCoroutineContext()[Job]
             try {
                 val active = ensureEngine()
                 // Two things decide how long a reply takes: how much context has to be
@@ -166,7 +170,7 @@ class ModelSessionManager(
                         maxOutputToken = maxOutputTokens,
                     ),
                 ).use { conversation ->
-                    val withImage = imagePath != null && visionGuard.isVisionAllowed
+                    // Declared outside the try so the finally can lower the flag.
                     val request = if (withImage) {
                         Contents.of(Content.ImageFile(imagePath!!), Content.Text(prompt))
                     } else {
@@ -176,11 +180,16 @@ class ModelSessionManager(
                     // never comes back is detectable at the next launch.
                     if (withImage) visionGuard.beginVisionCall()
                     conversation.sendMessageAsync(request)
-                        .catch { error -> send("\nLiteRT-LM stream error: ${error.message}") }
+                        // Never write the failure into the reply. It used to be sent down the
+                        // same channel as the text, so the runtime error string was pasted onto
+                        // the front of the retelling and shipped to the reader as part of it.
+                        .catch { error -> noteFailure(error, withImage) }
                         .collect { message -> send(message.toString()) }
                 }
             } finally {
+                if (withImage) visionGuard.endVisionCall()
                 streaming = false
+                activeGeneration = null
                 scheduleIdleUnload()
             }
         }
@@ -272,6 +281,22 @@ class ModelSessionManager(
         }
     }
 
+    /**
+     * Records why a generation stopped.
+     *
+     * "Vision executor should not be null" is a property of this build, not bad luck: the
+     * engine was created without an image encoder and no amount of retrying conjures one.
+     * Rather than fail every photographed page the same way forever, images are switched
+     * off here and the text path is used from then on.
+     */
+    private fun noteFailure(error: Throwable, wasVisionCall: Boolean) {
+        val message = error.message.orEmpty()
+        if (wasVisionCall && VISION_UNAVAILABLE_MARKERS.any { message.contains(it, ignoreCase = true) }) {
+            visionGuard.disableVision()
+        }
+        _state.value = ModelSessionState.Error(friendly(error))
+    }
+
     private fun friendly(error: Throwable): String = when {
         error is ModelNotInstalledException -> "offline AI is not downloaded yet"
         error.message?.contains("memory", ignoreCase = true) == true -> "this device ran out of memory"
@@ -317,6 +342,13 @@ class ModelSessionManager(
                             // a reply — a vision encoder emits hundreds of tokens per tile,
                             // and overflowing the window corrupts memory instead of
                             // reporting anything.
+                            // The vision executor is only built when a vision backend is
+                            // asked for. Leaving this unset is exactly what produced
+                            // "Vision executor should not be null" on every photographed
+                            // page. CPU rather than the text backend, because the image
+                            // encoder is the part most likely to be absent from a GPU
+                            // build, and a slower encode beats no encode at all.
+                            visionBackend = if (visionAllowed) Backend.CPU() else null,
                             maxNumImages = if (visionAllowed) MAX_IMAGES else 0,
                             maxNumTokens = if (visionAllowed) VISION_CONTEXT_TOKENS else MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
@@ -412,6 +444,13 @@ class ModelSessionManager(
         /** Room for an encoded page image alongside the prompt and the reply. */
         const val VISION_CONTEXT_TOKENS = 4_096
         const val MAX_IMAGES = 1
+
+        /** What the runtime says when the engine has no image encoder loaded. */
+        val VISION_UNAVAILABLE_MARKERS = listOf(
+            "vision executor",
+            "TryLoadingVisionExecutor",
+            "vision is not supported",
+        )
 
         /** Roughly 400 words, which is more than any single answer here needs. */
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560

@@ -257,7 +257,10 @@ class WorkflowEngine(
             timeoutReason =
                 "Local model stopped after ${INFERENCE_TIMEOUT_MS / 1000}s. Showing what it produced."
         } catch (error: IllegalStateException) {
-            accumulated.append("\nLiteRT-LM stream error: ${error.message}")
+            // The failure is reported through timeoutReason, never appended to the text.
+            // Pasting it into the reply is how a runtime error string ended up printed
+            // at the top of a retelling.
+            timeoutReason = "That did not finish. Try again."
         }
         return StreamAttempt(accumulated.toString(), timeoutReason)
     }
