@@ -298,7 +298,10 @@ class ModelSessionManager(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = backend.toRuntimeBackend(),
-                            visionBackend = backend.toRuntimeBackend(),
+                            // Vision backend deliberately left at its default. Pinning it
+                            // to the text backend meant a build whose image encoder cannot
+                            // run there failed to initialise at all — taking every feature
+                            // down, not just the ones that read pictures.
                             maxNumTokens = MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),

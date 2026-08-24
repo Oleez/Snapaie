@@ -7,6 +7,7 @@ import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.domain.book.Segmenter
+import com.snapaie.android.domain.condense.BeatCondenser
 import com.snapaie.android.domain.condense.BeatContract
 import com.snapaie.android.domain.condense.BeatRejection
 import com.snapaie.android.domain.condense.BudgetGovernor
@@ -21,14 +22,24 @@ class WorkflowEngine(
 ) {
     private val parser = StructuredOutputParser()
     private val prompts = PromptLibrary(context)
+    private val condenser = BeatCondenser(sessionManager, prompts)
 
     fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Capture, "Page text captured.", isComplete = true)))
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "Page text ready.", isComplete = true)))
 
         if (!sessionManager.isModelInstalled()) {
-            emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Quick draft. Turn on offline AI for the full result.", isComplete = true)))
-            emit(WorkflowEvent.Result(finalize(draft, parser.heuristicOnly(draft)), fromModel = false))
+            emit(
+                WorkflowEvent.Phase(
+                    PhaseUpdate(
+                        ScanPhase.Compression,
+                        "Shortened on the spot. Turn on offline AI for a proper retelling.",
+                        isComplete = true,
+                    ),
+                ),
+            )
+            val quick = parser.heuristicOnly(draft).copy(condensedProse = localShorten(draft))
+            emit(WorkflowEvent.Result(finalize(draft, quick), fromModel = false))
             return@flow
         }
 
@@ -40,9 +51,21 @@ class WorkflowEngine(
         // retold as prose — doubling the wait for a screen whose top half is the prose. The
         // retelling is what people came for, so it is the call that runs. The breakdown is
         // still available, on demand, from the result screen.
-        val prose = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+        val attempt = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+        val prose = attempt.prose
 
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Shorter version ready.", isComplete = true)))
+        emit(
+            WorkflowEvent.Phase(
+                PhaseUpdate(
+                    ScanPhase.Compression,
+                    // Say what happened. A blank panel with no explanation was the whole
+                    // problem: it looked identical whether the model had failed, the page
+                    // was too short, or the reply had been rejected.
+                    if (prose.isNotBlank()) "Shorter version ready." else attempt.reason.orEmpty(),
+                    isComplete = true,
+                ),
+            ),
+        )
 
         val result = if (prose.isNotBlank()) {
             // The cheap, honest parts computed locally rather than asked for: no second
@@ -93,49 +116,95 @@ class WorkflowEngine(
      * Retells the page at roughly a third of its length, using the same contract the book
      * pipeline uses so a page and a chapter read the same way.
      */
+    /** Shortens the page without a model, so a snap always produces something. */
+    private fun localShorten(draft: BookScanDraft): String {
+        val source = draft.pageText.trim()
+        if (source.length < MIN_PROSE_SOURCE_CHARS) return ""
+        val budget = (Segmenter.countWords(source) * PROSE_RATIO).toInt()
+            .coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
+        return condenser.extractiveFallback(source, budget)
+    }
+
+    /** The retelling, plus why it is missing when it is. */
+    private data class ProseAttempt(val prose: String, val reason: String?)
+
+    /**
+     * Retells the page shorter.
+     *
+     * Written as a ladder because every rung of it has been observed to fail on its own:
+     * the image call can come back empty when the engine cannot serve vision, and a reply
+     * can be perfectly good prose that trips the summary detector. Previously any of those
+     * returned an empty string and the screen simply showed nothing, with no way to tell
+     * which had happened. Now each fall-through is tried in turn and the last failure is
+     * reported rather than swallowed.
+     */
     private suspend fun condenseToProse(
         draft: BookScanDraft,
         onToken: suspend (String) -> Unit,
-    ): String {
+    ): ProseAttempt {
         val source = draft.pageText.trim()
         val hasImage = draft.imagePath.isNotBlank() && java.io.File(draft.imagePath).isFile
-        if (!hasImage && source.length < MIN_PROSE_SOURCE_CHARS) return ""
-
-        // Budget from whatever we know the page's length to be. With no recognised text to
-        // measure, a typical book page is the fallback.
-        val sourceWords = if (source.isNotBlank()) Segmenter.countWords(source) else TYPICAL_PAGE_WORDS
-        val budget = (sourceWords * PROSE_RATIO).toInt().coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-
-        val template = runCatching { prompts.readAsset("prompts/condense_page.md") }.getOrDefault("")
-        if (template.isBlank()) return ""
-
-        // One pass, not two. When there is a photograph the model reads it and retells it
-        // in the same generation, which removes a whole round trip from every snap — and
-        // two of them whenever the text recogniser struggled and used to hand off to the
-        // model just to transcribe.
-        val prompt = template
-            .replace("{{TARGET_WORDS}}", budget.toString())
-            .replace(
-                "{{SOURCE_BLOCK}}",
-                if (hasImage) {
-                    "The page is the attached image. Read it, then retell it."
-                } else {
-                    "The page:" + System.lineSeparator() + source.take(MAX_PROSE_SOURCE_CHARS)
-                },
-            )
-
-        val budgetTokens = budget * 2 + 80
-        val attempt = if (hasImage) {
-            streamVision(prompt, draft.imagePath, budgetTokens, onToken)
-        } else {
-            streamOnce(prompt, budgetTokens, onToken)
+        if (!hasImage && source.length < MIN_PROSE_SOURCE_CHARS) {
+            return ProseAttempt("", "There is not enough text on this page to shorten.")
         }
 
-        val prose = BeatContract.cleanProse(attempt.text)
-        // With no recognised text there is nothing to check names against, so the length
-        // and meta-framing rules still apply but the name check cannot.
-        return if (BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE) prose else ""
+        val template = runCatching { prompts.readAsset("prompts/condense_page.md") }.getOrDefault("")
+        if (template.isBlank()) return ProseAttempt("", "The condenser is missing from this build.")
+
+        val sourceWords = if (source.isNotBlank()) Segmenter.countWords(source) else TYPICAL_PAGE_WORDS
+        val budget = (sourceWords * PROSE_RATIO).toInt().coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
+        val budgetTokens = budget * 2 + 80
+
+        var best = ""
+        var reason: String? = null
+
+        // 1. The photograph, read and retold in one pass.
+        if (hasImage) {
+            val raw = streamVision(promptFor(template, budget, imageMode = true), draft.imagePath, budgetTokens, onToken)
+            val prose = BeatContract.cleanProse(raw.text)
+            if (accepted(prose, source, budget)) return ProseAttempt(prose, null)
+            if (prose.length > best.length) best = prose
+            reason = raw.timeoutReason ?: "The photo could not be read clearly."
+        }
+
+        // 2. The recognised text, which is available even when the image path is not.
+        if (source.length >= MIN_PROSE_SOURCE_CHARS) {
+            val textPrompt = promptFor(template, budget, imageMode = false) +
+                System.lineSeparator() + "The page:" + System.lineSeparator() +
+                source.take(MAX_PROSE_SOURCE_CHARS)
+            val raw = streamOnce(textPrompt, budgetTokens, onToken)
+            val prose = BeatContract.cleanProse(raw.text)
+            if (accepted(prose, source, budget)) return ProseAttempt(prose, null)
+            if (prose.length > best.length) best = prose
+            reason = raw.timeoutReason ?: reason ?: "The result did not come back as a retelling."
+        }
+
+        // 3. Something imperfect beats nothing. Rejection means it read as a summary or
+        //    came back short — both still more use to a reader than an empty panel.
+        if (best.length >= MIN_KEEPABLE_PROSE_CHARS) return ProseAttempt(best, null)
+
+        // 4. No model output at all. Shorten it locally instead: the opening of each
+        //    paragraph, in order, which keeps the sequence and the names at the cost of
+        //    the prose. It is the difference between a rougher read and a blank screen,
+        //    and it works with no model installed and no network.
+        if (source.length >= MIN_PROSE_SOURCE_CHARS) {
+            val extractive = condenser.extractiveFallback(source, budget)
+            if (extractive.length >= MIN_KEEPABLE_PROSE_CHARS) {
+                return ProseAttempt(extractive, null)
+            }
+        }
+        return ProseAttempt("", reason ?: "Nothing came back. Try again.")
     }
+
+    private fun promptFor(template: String, budget: Int, imageMode: Boolean): String = template
+        .replace("{{TARGET_WORDS}}", budget.toString())
+        .replace(
+            "{{SOURCE_BLOCK}}",
+            if (imageMode) "The page is the attached image. Read it, then retell it." else "",
+        )
+
+    private fun accepted(prose: String, source: String, budget: Int): Boolean =
+        prose.isNotBlank() && BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE
 
     private suspend fun streamVision(
         prompt: String,
@@ -154,8 +223,11 @@ class WorkflowEngine(
             }
         } catch (_: TimeoutCancellationException) {
             timeoutReason = "Stopped early."
-        } catch (_: IllegalStateException) {
-            // Engine unavailable; the caller falls back to the local draft.
+        } catch (error: IllegalStateException) {
+            // Engine could not serve this request — most often because the build in use
+            // cannot read images. Reported, so the caller can fall through to the text
+            // path instead of returning an unexplained blank.
+            timeoutReason = "Reading the photo is not supported on this device."
         }
         return StreamAttempt(accumulated.toString(), timeoutReason)
     }
@@ -197,12 +269,15 @@ class WorkflowEngine(
         const val INFERENCE_TIMEOUT_MS = 240_000L
 
         /** A page shorter than this has nothing worth condensing. */
-        const val MIN_PROSE_SOURCE_CHARS = 400
+        const val MIN_PROSE_SOURCE_CHARS = 180
         const val MAX_PROSE_SOURCE_CHARS = 9_000
         const val PROSE_RATIO = 0.34f
 
         /** Words on a typical book page, used when nothing was recognised to measure. */
         const val TYPICAL_PAGE_WORDS = 320
+
+        /** Keep an imperfect retelling rather than show nothing. */
+        const val MIN_KEEPABLE_PROSE_CHARS = 120
     }
 }
 

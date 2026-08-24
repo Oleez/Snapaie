@@ -124,56 +124,9 @@ class BeatCondenser(
         }
     }
 
-    /**
-     * Last resort: an extractive condensation, no model involved.
-     *
-     * Keeps the opening of every paragraph in order and drops the tail of each, which
-     * preserves sequence, names and events at the cost of prose quality. It reads worse
-     * than a real retelling — but a rough paragraph in the right place is recoverable,
-     * whereas a hole in a story is not, and the reader is shown which passages these are so
-     * they can be re-run later.
-     */
-    fun extractiveFallback(sourceText: String, budgetWords: Int): String {
-        val paragraphs = sourceText.split(Regex("""\n\s*\n""")).map { it.trim() }.filter { it.isNotBlank() }
-        if (paragraphs.isEmpty()) return sourceText.trim()
-
-        val budget = budgetWords.coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-        val perParagraph = (budget / paragraphs.size).coerceAtLeast(MIN_FALLBACK_WORDS_PER_PARAGRAPH)
-
-        return paragraphs.joinToString("\n\n") { paragraph ->
-            val sentences = splitSentences(paragraph)
-            val kept = StringBuilder()
-            var words = 0
-            for (sentence in sentences) {
-                if (words >= perParagraph && kept.isNotEmpty()) break
-                if (kept.isNotEmpty()) kept.append(' ')
-                kept.append(sentence.trim())
-                words += countWords(sentence)
-            }
-            kept.toString()
-        }.trim()
-    }
-
-    private fun splitSentences(text: String): List<String> {
-        val result = mutableListOf<String>()
-        var start = 0
-        var index = 0
-        while (index < text.length) {
-            if (text[index] in ".!?") {
-                var end = index + 1
-                while (end < text.length && text[end] in "\"')]\u2019\u201D") end++
-                if (end >= text.length || text[end].isWhitespace()) {
-                    result += text.substring(start, end)
-                    start = end
-                    index = end
-                    continue
-                }
-            }
-            index++
-        }
-        if (start < text.length) result += text.substring(start)
-        return result.map { it.trim() }.filter { it.isNotBlank() }
-    }
+    /** Kept as a delegate so callers inside the pipeline read naturally. */
+    fun extractiveFallback(sourceText: String, budgetWords: Int): String =
+        ExtractiveCondenser.shorten(sourceText, budgetWords)
 
     private fun retryMultiplier(attempt: Int): Float = when (attempt) {
         1 -> 1.0f
