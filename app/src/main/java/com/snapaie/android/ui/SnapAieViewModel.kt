@@ -152,14 +152,20 @@ class SnapAieViewModel(
             _uiState.update { it.copy(isOcrRunning = true, ocrError = null) }
             // Falls back to the model reading the photo when the recogniser struggles,
             // which is most of the difference between a usable page and a garbled one.
+            val imagePath = runCatching { container.pageTextExtractor.localImagePath(uri) }.getOrNull()
             runCatching { container.pageTextExtractor.extract(uri) }
                 .onSuccess { page ->
                     _uiState.update {
                         it.copy(
                             isOcrRunning = false,
-                            draft = it.draft.copy(pageText = page.text),
-                            ocrError = if (page.text.isBlank()) {
-                                "No readable text on that page. Try a straighter, better-lit photo."
+                            draft = it.draft.copy(
+                                pageText = page.text,
+                                imagePath = imagePath.orEmpty(),
+                            ),
+                            // With the photo in hand the model can still read a page the
+                            // recogniser could not, so blank text is no longer a dead end.
+                            ocrError = if (page.text.isBlank() && imagePath == null) {
+                                "That photo could not be read. Try a straighter, better-lit one."
                             } else {
                                 null
                             },

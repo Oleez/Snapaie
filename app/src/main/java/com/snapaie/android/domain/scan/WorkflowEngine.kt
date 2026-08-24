@@ -98,24 +98,66 @@ class WorkflowEngine(
         onToken: suspend (String) -> Unit,
     ): String {
         val source = draft.pageText.trim()
-        if (source.length < MIN_PROSE_SOURCE_CHARS) return ""
+        val hasImage = draft.imagePath.isNotBlank() && java.io.File(draft.imagePath).isFile
+        if (!hasImage && source.length < MIN_PROSE_SOURCE_CHARS) return ""
 
-        val budget = (Segmenter.countWords(source) * PROSE_RATIO).toInt()
-            .coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-        val template = runCatching { prompts.readAsset("prompts/condense.md") }.getOrDefault("")
+        // Budget from whatever we know the page's length to be. With no recognised text to
+        // measure, a typical book page is the fallback.
+        val sourceWords = if (source.isNotBlank()) Segmenter.countWords(source) else TYPICAL_PAGE_WORDS
+        val budget = (sourceWords * PROSE_RATIO).toInt().coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
+
+        val template = runCatching { prompts.readAsset("prompts/condense_page.md") }.getOrDefault("")
         if (template.isBlank()) return ""
 
+        // One pass, not two. When there is a photograph the model reads it and retells it
+        // in the same generation, which removes a whole round trip from every snap — and
+        // two of them whenever the text recogniser struggled and used to hand off to the
+        // model just to transcribe.
         val prompt = template
             .replace("{{TARGET_WORDS}}", budget.toString())
-            .replace("{{DELIMITER}}", BeatContract.LEDGER_DELIMITER)
-            .replace("{{LEDGER}}", "This is a single page on its own. Nothing came before it.")
-            .replace("{{PREVIOUS_TAIL}}", "(nothing yet)")
-            .replace("{{SOURCE}}", source.take(MAX_PROSE_SOURCE_CHARS))
+            .replace(
+                "{{SOURCE_BLOCK}}",
+                if (hasImage) {
+                    "The page is the attached image. Read it, then retell it."
+                } else {
+                    "The page:" + System.lineSeparator() + source.take(MAX_PROSE_SOURCE_CHARS)
+                },
+            )
 
-        // Give it only the room the target needs, with headroom for the ledger block.
-        val attempt = streamOnce(prompt, maxOutputTokens = budget * 2 + 160, onToken = onToken)
-        val prose = BeatContract.split(attempt.text).prose
+        val budgetTokens = budget * 2 + 80
+        val attempt = if (hasImage) {
+            streamVision(prompt, draft.imagePath, budgetTokens, onToken)
+        } else {
+            streamOnce(prompt, budgetTokens, onToken)
+        }
+
+        val prose = BeatContract.cleanProse(attempt.text)
+        // With no recognised text there is nothing to check names against, so the length
+        // and meta-framing rules still apply but the name check cannot.
         return if (BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE) prose else ""
+    }
+
+    private suspend fun streamVision(
+        prompt: String,
+        imagePath: String,
+        maxOutputTokens: Int,
+        onToken: suspend (String) -> Unit,
+    ): StreamAttempt {
+        val accumulated = StringBuilder()
+        var timeoutReason: String? = null
+        try {
+            withTimeout(INFERENCE_TIMEOUT_MS) {
+                sessionManager.streamWithImage(prompt, imagePath, maxOutputTokens).collect { token ->
+                    accumulated.append(token)
+                    if (token.isNotBlank()) onToken(token)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            timeoutReason = "Stopped early."
+        } catch (_: IllegalStateException) {
+            // Engine unavailable; the caller falls back to the local draft.
+        }
+        return StreamAttempt(accumulated.toString(), timeoutReason)
     }
 
     private data class StreamAttempt(val text: String, val timeoutReason: String?)
@@ -158,6 +200,9 @@ class WorkflowEngine(
         const val MIN_PROSE_SOURCE_CHARS = 400
         const val MAX_PROSE_SOURCE_CHARS = 9_000
         const val PROSE_RATIO = 0.34f
+
+        /** Words on a typical book page, used when nothing was recognised to measure. */
+        const val TYPICAL_PAGE_WORDS = 320
     }
 }
 

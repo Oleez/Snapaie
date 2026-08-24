@@ -33,24 +33,18 @@ class PageTextExtractor(
 ) {
 
     suspend fun extract(uri: Uri): PageText = withContext(Dispatchers.IO) {
+        // Recognition only. The model used to be asked to transcribe a page the recogniser
+        // struggled with, which cost a whole generation before the work of condensing had
+        // even started — and then a second one to condense. Since the model reads the
+        // photograph directly when it condenses, this text is no longer on the path to a
+        // result: it is kept for search, for word counts, and for comparing against the
+        // original, none of which the user waits on.
         val recognised = runCatching { ocrProcessor.extractText(uri) }.getOrDefault("").trim()
-        val verdict = TextQuality.assess(recognised)
-
-        if (verdict == TextQuality.Verdict.GOOD || !sessionManager.isModelInstalled()) {
-            return@withContext PageText(recognised, sourceFor(recognised))
-        }
-
-        val path = localPathFor(uri) ?: return@withContext PageText(recognised, sourceFor(recognised))
-        val fromModel = runCatching { readWithModel(path) }.getOrDefault("").trim()
-
-        // Only prefer the model when it actually did better; a refusal or a short
-        // description of the photo is worse than imperfect recognised text.
-        val modelVerdict = TextQuality.assess(fromModel)
-        val modelWins = modelVerdict != TextQuality.Verdict.UNUSABLE &&
-            (verdict == TextQuality.Verdict.UNUSABLE || fromModel.length > recognised.length * 1.2)
-
-        if (modelWins) PageText(fromModel, TextSource.MODEL) else PageText(recognised, sourceFor(recognised))
+        PageText(recognised, sourceFor(recognised))
     }
+
+    /** A local copy of [uri] the model can read from, or null when it cannot be made. */
+    suspend fun localImagePath(uri: Uri): String? = withContext(Dispatchers.IO) { localPathFor(uri) }
 
     private suspend fun readWithModel(path: String): String {
         val builder = StringBuilder()

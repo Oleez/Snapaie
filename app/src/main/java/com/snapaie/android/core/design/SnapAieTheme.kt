@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -50,15 +51,16 @@ private val SnapDarkScheme: ColorScheme = darkColorScheme(
     primary = DesignTokens.Mint,
     secondary = DesignTokens.Amber,
     tertiary = DesignTokens.Periwinkle,
-    background = DesignTokens.DarkBackground,
-    surface = DesignTokens.DarkSurface,
-    surfaceVariant = DesignTokens.DarkSurfaceVariant,
+    background = Color(0xFF121A1B),
+    surface = Color(0xFF1A2223),
+    surfaceVariant = Color(0xFF2A3639),
+    surfaceContainerHigh = Color(0xFF243032),
     onPrimary = Color(0xFF06211A),
     onSecondary = Color(0xFF2A2100),
     onBackground = Color(0xFFEAF3EF),
     onSurface = Color(0xFFEAF3EF),
-    onSurfaceVariant = Color(0xFFB9C9C4),
-    outline = Color(0xFF50605F),
+    onSurfaceVariant = Color(0xFFC3D3CE),
+    outline = Color(0xFF6C7F7D),
 )
 
 /** Light theme built from the extension's tokens (accent #007AFF, purple headers). */
@@ -82,15 +84,16 @@ private val AuroraScheme: ColorScheme = darkColorScheme(
     primary = Color(0xFFA5B4FC),
     secondary = DesignTokens.XpPink,
     tertiary = DesignTokens.Amber,
-    background = Color(0xFF0F1222),
-    surface = Color(0xFF181C30),
-    surfaceVariant = Color(0xFF272C45),
+    background = Color(0xFF141830),
+    surface = Color(0xFF1E2338),
+    surfaceVariant = Color(0xFF2F3550),
+    surfaceContainerHigh = Color(0xFF29304A),
     onPrimary = Color(0xFF141838),
     onSecondary = Color(0xFF33101F),
     onBackground = Color(0xFFECEEFB),
     onSurface = Color(0xFFECEEFB),
-    onSurfaceVariant = Color(0xFFB9BEDA),
-    outline = Color(0xFF525A7E),
+    onSurfaceVariant = Color(0xFFC6CBE6),
+    outline = Color(0xFF6E77A0),
 )
 
 /** The accent in force, so any component can tint itself without threading it through. */
@@ -291,33 +294,38 @@ fun Modifier.snapScreenBackground(): Modifier {
 
     return this
         .background(if (dark) scheme.background else Color(0xFFF6F7FB))
-        .background(
-            Brush.radialGradient(
+        // Washes sized to the surface rather than to fixed pixel offsets. With hard-coded
+        // radii the middle of a tall screen fell outside every gradient and went flat
+        // black, which is why long screens like Settings looked switched off.
+        .drawWithCache {
+            val warm = Brush.radialGradient(
                 colors = listOf(
-                    accent.primary.copy(alpha = if (dark) 0.18f else 0.20f),
+                    accent.primary.copy(alpha = if (dark) 0.26f else 0.22f),
                     Color.Transparent,
                 ),
-                center = Offset(160f + drift * 260f, 120f),
-                radius = 900f,
-            ),
-        )
-        .background(
-            Brush.radialGradient(
+                center = Offset(size.width * (0.15f + drift * 0.25f), size.height * 0.06f),
+                radius = size.maxDimension * 0.75f,
+            )
+            val cool = Brush.radialGradient(
                 colors = listOf(
-                    accent.tertiary.copy(alpha = if (dark) 0.15f else 0.18f),
+                    accent.tertiary.copy(alpha = if (dark) 0.22f else 0.20f),
                     Color.Transparent,
                 ),
-                center = Offset(900f - drift * 220f, 1500f),
-                radius = 1000f,
-            ),
-        )
-        // A gentle darkening down the page keeps the lower half from washing out.
-        .background(
-            Brush.verticalGradient(
-                listOf(
+                center = Offset(size.width * (0.9f - drift * 0.2f), size.height * 0.62f),
+                radius = size.maxDimension * 0.8f,
+            )
+            val lift = Brush.radialGradient(
+                colors = listOf(
+                    accent.secondary.copy(alpha = if (dark) 0.14f else 0.12f),
                     Color.Transparent,
-                    if (dark) Color.Black.copy(alpha = 0.22f) else Color(0xFF2B3340).copy(alpha = 0.05f),
                 ),
-            ),
-        )
+                center = Offset(size.width * 0.45f, size.height * 1.02f),
+                radius = size.maxDimension * 0.6f,
+            )
+            onDrawBehind {
+                drawRect(warm)
+                drawRect(cool)
+                drawRect(lift)
+            }
+        }
 }
