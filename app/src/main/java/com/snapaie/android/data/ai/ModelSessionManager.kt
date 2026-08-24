@@ -3,6 +3,8 @@ package com.snapaie.android.data.ai
 import android.app.ActivityManager
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.snapaie.android.core.diagnostics.CrashLog
@@ -112,14 +114,33 @@ class ModelSessionManager(
      * Streams raw model output for [prompt]. Single-flight: concurrent calls queue.
      * Cancelling the collector cancels generation.
      */
-    fun stream(prompt: String): Flow<String> = channelFlow {
+    /**
+     * Streams a reply to [prompt] with [imagePath] attached, letting the model read the
+     * picture itself.
+     *
+     * Gemma 4 E2B takes images as well as text, which matters for pages a plain text
+     * recogniser struggles with — a curved spine, a column that wraps oddly, a footnote
+     * glued to the body. The recogniser is still tried first because it is far faster and
+     * usually right; this is the fallback for when it is not.
+     */
+    fun streamWithImage(prompt: String, imagePath: String): Flow<String> =
+        stream(prompt, imagePath)
+
+    fun stream(prompt: String): Flow<String> = stream(prompt, null)
+
+    private fun stream(prompt: String, imagePath: String?): Flow<String> = channelFlow {
         mutex.withLock {
             idleUnloadJob?.cancel()
             streaming = true
             try {
                 val active = ensureEngine()
                 active.createConversation().use { conversation ->
-                    conversation.sendMessageAsync(prompt)
+                    val request = if (imagePath != null) {
+                        Contents.of(Content.ImageFile(imagePath), Content.Text(prompt))
+                    } else {
+                        Contents.of(prompt)
+                    }
+                    conversation.sendMessageAsync(request)
                         .catch { error -> send("\nLiteRT-LM stream error: ${error.message}") }
                         .collect { message -> send(message.toString()) }
                 }

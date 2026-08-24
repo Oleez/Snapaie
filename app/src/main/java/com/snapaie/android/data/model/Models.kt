@@ -42,6 +42,14 @@ enum class ScanPhase(val label: String) {
 
 @Serializable
 data class KnowledgeResult(
+    /**
+     * The page retold shorter, as continuous prose.
+     *
+     * This is the part people actually read. The structured fields below dissect the page —
+     * useful, but a list of findings about a text is not the same as a shorter version of
+     * it, and reading one never feels like reading the other.
+     */
+    val condensedProse: String = "",
     val conciseMeaning: String = "",
     val coreIdea: String = "",
     val authorIntent: String = "",
@@ -67,6 +75,11 @@ data class KnowledgeResult(
         if (isPlainTextOnly) {
             appendLine(plainTextFallback)
         } else {
+            if (condensedProse.isNotBlank()) {
+                appendLine("## Shorter version")
+                appendLine(condensedProse)
+                appendLine()
+            }
             appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
             appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
             appendLine()

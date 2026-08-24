@@ -27,6 +27,7 @@ import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.MIGRATION_2_3
 import com.snapaie.android.data.local.SnapAieDatabase
 import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.ocr.PageTextExtractor
 import com.snapaie.android.data.pdf.PdfTextExtractor
 import com.snapaie.android.data.preferences.AppPreferencesRepository
 import com.snapaie.android.domain.chat.ChatEngine
@@ -132,6 +133,7 @@ class SnapAieApplication : Application() {
             sessionManager = sessionManager,
             ocrProcessor = ocrProcessor,
             pdfTextExtractor = PdfTextExtractor(applicationContext, ocrProcessor),
+            pageTextExtractor = PageTextExtractor(applicationContext, ocrProcessor, sessionManager),
             bookStorage = bookStorage,
             bookRepository = bookRepository,
             condensePipeline = condensePipeline,
@@ -183,6 +185,7 @@ data class AppContainer(
     val sessionManager: ModelSessionManager,
     val ocrProcessor: OcrProcessor,
     val pdfTextExtractor: PdfTextExtractor,
+    val pageTextExtractor: PageTextExtractor,
     val bookStorage: BookStorage,
     val bookRepository: BookRepository,
     val condensePipeline: CondensePipeline,

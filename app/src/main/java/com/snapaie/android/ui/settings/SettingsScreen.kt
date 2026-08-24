@@ -253,7 +253,7 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                 )
                 when (val status = modelState.updateStatus) {
                     is ModelUpdateStatus.UpdateAvailable -> Text(
-                        "An update is ready. You can download it from the Books tab.",
+                        "An update is ready. You can download it from the Snap tab.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )

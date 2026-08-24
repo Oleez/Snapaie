@@ -149,15 +149,25 @@ class SnapAieViewModel(
     fun extractText(uri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(isOcrRunning = true, ocrError = null) }
-            runCatching { container.ocrProcessor.extractText(uri) }
-                .onSuccess { text ->
+            // Falls back to the model reading the photo when the recogniser struggles,
+            // which is most of the difference between a usable page and a garbled one.
+            runCatching { container.pageTextExtractor.extract(uri) }
+                .onSuccess { page ->
                     _uiState.update {
-                        it.copy(isOcrRunning = false, draft = it.draft.copy(pageText = text))
+                        it.copy(
+                            isOcrRunning = false,
+                            draft = it.draft.copy(pageText = page.text),
+                            ocrError = if (page.text.isBlank()) {
+                                "No readable text on that page. Try a straighter, better-lit photo."
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
-                .onFailure { error ->
+                .onFailure {
                     _uiState.update {
-                        it.copy(isOcrRunning = false, ocrError = error.message ?: "OCR failed")
+                        it.copy(isOcrRunning = false, ocrError = "That page could not be read. Try again.")
                     }
                 }
         }

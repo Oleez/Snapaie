@@ -88,10 +88,10 @@ import com.snapaie.android.ui.writing.WritingScreen
 import kotlinx.coroutines.flow.first
 
 private enum class BottomTab(val route: String, val label: String, val icon: ImageVector) {
-    // Books first: whole-book condensation is what the app is for now, and the page-level
-    // Snap is the quick tool beside it rather than the main event.
-    Books(Routes.Books, "Books", Icons.Filled.AutoStories),
+    // Snap first: it is the thing people reach for most, and it pays off in seconds
+    // rather than hours. Books sits beside it for the long job.
     Snap(Routes.Snap, "Snap", Icons.Filled.CameraAlt),
+    Books(Routes.Books, "Books", Icons.Filled.AutoStories),
     Recall(Routes.Recall, "Recall", Icons.Filled.Psychology),
     Library(Routes.Library, "Library", Icons.Filled.Inventory2),
 }
@@ -153,7 +153,7 @@ private fun MainShell(
     val currentRoute = backStack?.destination?.route.orEmpty()
 
     LaunchedEffect(startRoute) {
-        if (!startRoute.isNullOrBlank() && startRoute != Routes.Books) navController.navigate(startRoute)
+        if (!startRoute.isNullOrBlank() && startRoute != Routes.Snap) navController.navigate(startRoute)
     }
 
     LaunchedEffect(ingest) {
@@ -253,7 +253,7 @@ private fun MainShell(
                                 selected = backStack?.destination?.hierarchy?.any { it.route == tab.route } == true,
                                 onClick = {
                                     navController.navigate(tab.route) {
-                                        popUpTo(Routes.Books) { saveState = true }
+                                        popUpTo(Routes.Snap) { saveState = true }
                                         launchSingleTop = true
                                         restoreState = true
                                     }
@@ -270,7 +270,7 @@ private fun MainShell(
                 AmbientBubbles(mode = bubblesMode)
                 NavHost(
                     navController = navController,
-                    startDestination = Routes.Books,
+                    startDestination = Routes.Snap,
                     modifier = Modifier.padding(padding),
                     enterTransition = {
                         fadeIn(tween(350)) + slideInVertically(tween(350)) { it / 14 }

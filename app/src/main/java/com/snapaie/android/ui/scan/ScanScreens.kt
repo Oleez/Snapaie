@@ -71,6 +71,7 @@ import com.snapaie.android.data.ai.model.ModelUpdateStatus
 import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.ui.SnapAieViewModel
+import com.snapaie.android.domain.output.BookContentBuilder
 import com.snapaie.android.ui.model.ModelSetupCard
 import com.snapaie.android.ui.nav.Routes
 import com.snapaie.android.domain.notifications.NotificationKind
@@ -495,6 +496,25 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
         if (current.result.isPlainTextOnly) {
             item { ResultSection("Result", listOf(current.result.plainTextFallback)) }
         } else {
+            // The retelling leads, because it is the thing someone opened this screen to
+            // read. The breakdown below it is reference, not the result.
+            if (current.result.condensedProse.isNotBlank()) {
+                item {
+                    LiquidGlassSurface {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "Shorter version",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            BookContentBuilder.paragraphsOf(current.result.condensedProse)
+                                .forEach { paragraph ->
+                                    Text(paragraph, style = MaterialTheme.typography.bodyLarge)
+                                }
+                        }
+                    }
+                }
+            }
             item { ResultSection("Concise meaning", listOf(current.result.conciseMeaning)) }
             item { ResultSection("Core idea", listOf(current.result.coreIdea)) }
             item { ResultSection("Author intent", listOf(current.result.authorIntent)) }
