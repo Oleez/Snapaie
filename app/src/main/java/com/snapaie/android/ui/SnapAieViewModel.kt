@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.snapaie.android.AppContainer
 import com.snapaie.android.data.local.KnowledgeScan
+import com.snapaie.android.data.local.decodeResultJson
 import com.snapaie.android.data.local.encodeResultJson
 import com.snapaie.android.data.local.knowledgeScanEntity
 import com.snapaie.android.data.local.toDomain
@@ -267,6 +268,40 @@ class SnapAieViewModel(
                         },
                     )
                 }
+            }
+        }
+    }
+
+    /**
+     * Runs the structured breakdown for an existing scan, on request.
+     *
+     * A snap no longer pays for this up front — it is a second full generation, and making
+     * every page wait for it before showing the retelling was the biggest cost in the flow.
+     */
+    fun requestBreakdown(scanId: Long, onDone: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val dao = container.database.knowledgeScanDao()
+            val row = dao.getScan(scanId) ?: return@launch onDone(false)
+            val existing = runCatching { decodeResultJson(row.resultJson) }
+                .getOrDefault(KnowledgeResult())
+            val draft = BookScanDraft(
+                mode = ExplainStyle.fromStored(row.mode),
+                bookTitle = row.bookTitle,
+                pageText = row.sourceText.ifBlank { row.sourcePreview },
+            )
+
+            var latest: KnowledgeResult? = null
+            runCatching {
+                container.workflowEngine.breakdown(draft).collect { event ->
+                    if (event is WorkflowEvent.Result) latest = event.result
+                }
+            }
+            val merged = latest?.copy(condensedProse = existing.condensedProse)
+            if (merged == null) {
+                onDone(false)
+            } else {
+                dao.update(row.copy(resultJson = encodeResultJson(merged)))
+                onDone(true)
             }
         }
     }

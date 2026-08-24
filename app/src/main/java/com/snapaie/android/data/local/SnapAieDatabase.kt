@@ -290,3 +290,7 @@ fun knowledgeScanEntity(
 )
 
 fun encodeResultJson(result: KnowledgeResult): String = json.encodeToString(result)
+
+/** Reads a stored result back, tolerating rows written by older versions of the app. */
+fun decodeResultJson(raw: String): KnowledgeResult =
+    runCatching { json.decodeFromString<KnowledgeResult>(raw) }.getOrDefault(KnowledgeResult())

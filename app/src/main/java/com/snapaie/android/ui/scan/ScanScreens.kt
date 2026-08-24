@@ -40,6 +40,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -507,6 +508,31 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
                     )
                 }
             }
+            // The breakdown is a second full generation, so it is offered rather than
+            // spent on every snap before the reader gets to the part they came for.
+            if (current.result.coreIdea.isBlank() && current.result.conciseMeaning.isBlank()) {
+                item {
+                    var loading by remember(current.id) { mutableStateOf(false) }
+                    LiquidGlassSurface {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Want the detail?", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Core idea, intent, key quotes and vocabulary. Takes another moment.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Button(
+                                onClick = {
+                                    loading = true
+                                    viewModel.requestBreakdown(current.id) { loading = false }
+                                },
+                                enabled = !loading,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(if (loading) "Breaking it down…" else "Break it down") }
+                        }
+                    }
+                }
+            }
             item { ResultSection("Concise meaning", listOf(current.result.conciseMeaning)) }
             item { ResultSection("Core idea", listOf(current.result.coreIdea)) }
             item { ResultSection("Author intent", listOf(current.result.authorIntent)) }
@@ -610,7 +636,7 @@ private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int)
                     fontWeight = FontWeight.SemiBold,
                 ),
             )
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+            HorizontalDivider(color = LocalContentColor.current.copy(alpha = 0.14f))
 
             paragraphs.forEachIndexed { index, paragraph ->
                 Text(
@@ -626,7 +652,7 @@ private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int)
                 )
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+            HorizontalDivider(color = LocalContentColor.current.copy(alpha = 0.14f))
             Text(
                 if (wordsIn > 0 && wordsOut > 0) {
                     "$wordsIn words down to $wordsOut"
@@ -634,7 +660,7 @@ private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int)
                     "snapaie"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = LocalContentColor.current.copy(alpha = 0.6f),
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }

@@ -5,6 +5,8 @@ import android.content.Context
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.snapaie.android.core.diagnostics.CrashLog
@@ -123,18 +125,43 @@ class ModelSessionManager(
      * glued to the body. The recogniser is still tried first because it is far faster and
      * usually right; this is the fallback for when it is not.
      */
-    fun streamWithImage(prompt: String, imagePath: String): Flow<String> =
-        stream(prompt, imagePath)
+    fun streamWithImage(
+        prompt: String,
+        imagePath: String,
+        maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+    ): Flow<String> = stream(prompt, imagePath, maxOutputTokens)
 
-    fun stream(prompt: String): Flow<String> = stream(prompt, null)
+    fun stream(
+        prompt: String,
+        maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+    ): Flow<String> = stream(prompt, null, maxOutputTokens)
 
-    private fun stream(prompt: String, imagePath: String?): Flow<String> = channelFlow {
+    private fun stream(
+        prompt: String,
+        imagePath: String?,
+        maxOutputTokens: Int,
+    ): Flow<String> = channelFlow {
         mutex.withLock {
             idleUnloadJob?.cancel()
             streaming = true
             try {
                 val active = ensureEngine()
-                active.createConversation().use { conversation ->
+                // Two things decide how long a reply takes: how much context has to be
+                // read, and how many tokens come back. The second was unbounded, so a
+                // model that failed to stop ran until the caller's timeout — minutes of
+                // work for an answer nobody wanted that long. Greedy sampling on top,
+                // because this is extraction and condensation, not creative writing, and
+                // there is nothing to gain from sampling a distribution.
+                active.createConversation(
+                    ConversationConfig(
+                        samplerConfig = SamplerConfig(
+                            topK = 1,
+                            topP = 1.0,
+                            temperature = 0.0,
+                        ),
+                        maxOutputToken = maxOutputTokens,
+                    ),
+                ).use { conversation ->
                     val request = if (imagePath != null) {
                         Contents.of(Content.ImageFile(imagePath), Content.Text(prompt))
                     } else {
@@ -219,8 +246,21 @@ class ModelSessionManager(
             mutex.withLock { closeEngine() }
             true
         }
-        if (closed == null) {
-            _state.value = ModelSessionState.Error("Still finishing the last request.")
+        if (closed != null) return
+
+        // Giving up here used to mean the weights stayed resident for the rest of the
+        // session — so a long stretch of use ended in the process being killed for memory.
+        // Keep trying in the background instead; the generation has already been cancelled,
+        // so the lock is only a matter of time.
+        scope.launch {
+            repeat(FORCED_UNLOAD_RETRIES) {
+                delay(FORCED_UNLOAD_TIMEOUT_MS)
+                val done = withTimeoutOrNull(FORCED_UNLOAD_TIMEOUT_MS) {
+                    mutex.withLock { closeEngine() }
+                    true
+                }
+                if (done != null) return@launch
+            }
         }
     }
 
@@ -258,6 +298,8 @@ class ModelSessionManager(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = backend.toRuntimeBackend(),
+                            visionBackend = backend.toRuntimeBackend(),
+                            maxNumTokens = MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),
                     ).also {
@@ -334,11 +376,21 @@ class ModelSessionManager(
         return (memoryInfo.totalMem / 1_000_000_000L).toInt().coerceAtLeast(1)
     }
 
-    private companion object {
+    companion object {
         const val IDLE_UNLOAD_MS = 60_000L
         const val MIN_COMFORTABLE_RAM_GB = 4
 
         /** How long a forced unload waits for an in-flight generation to stop. */
         const val FORCED_UNLOAD_TIMEOUT_MS = 4_000L
+        const val FORCED_UNLOAD_RETRIES = 10
+
+        /**
+         * Context window the engine is built with. Every prompt this app sends fits well
+         * inside it, and a smaller window means faster prefill and less resident memory.
+         */
+        const val MAX_CONTEXT_TOKENS = 2_048
+
+        /** Roughly 400 words, which is more than any single answer here needs. */
+        const val DEFAULT_MAX_OUTPUT_TOKENS = 560
     }
 }

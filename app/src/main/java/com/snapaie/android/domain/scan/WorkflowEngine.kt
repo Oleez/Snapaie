@@ -34,17 +34,45 @@ class WorkflowEngine(
 
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Condensing the page…")))
 
+        // One model call, not two.
+        //
+        // This used to ask for a structured breakdown and then, separately, for the page
+        // retold as prose — doubling the wait for a screen whose top half is the prose. The
+        // retelling is what people came for, so it is the call that runs. The breakdown is
+        // still available, on demand, from the result screen.
+        val prose = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+
+        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Shorter version ready.", isComplete = true)))
+
+        val result = if (prose.isNotBlank()) {
+            // The cheap, honest parts computed locally rather than asked for: no second
+            // round trip, and nothing the model could invent.
+            parser.heuristicOnly(draft).copy(condensedProse = prose)
+        } else {
+            parser.heuristicOnly(draft)
+        }
+        emit(WorkflowEvent.Result(finalize(draft, result), fromModel = prose.isNotBlank()))
+    }
+
+    /**
+     * The structured breakdown — core idea, intent, vocabulary and the rest.
+     *
+     * Deliberately not part of a snap. It is a second full generation, and making every
+     * page wait for it to reach the part that is actually read was the single biggest cost
+     * in the flow. Callers ask for it when someone opens it.
+     */
+    fun breakdown(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
+        if (!sessionManager.isModelInstalled()) {
+            emit(WorkflowEvent.Result(finalize(draft, parser.heuristicOnly(draft)), fromModel = false))
+            return@flow
+        }
+        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Insight, "Breaking the page down…")))
+
         var attempt = streamOnce(prompts.buildScanPrompt(draft)) { token ->
             emit(WorkflowEvent.Token(token))
         }
-
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Compression complete.", isComplete = true)))
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.ClarityCheck, "Structuring the result…")))
-
         var outcome = parser.parse(attempt.text)
         if (outcome is ParseOutcome.Unparseable && attempt.text.isNotBlank()) {
-            // Repair pass: one retry with a stricter JSON-only prompt.
-            emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.ClarityCheck, "Tightening the output format…")))
             val retry = streamOnce(prompts.buildRepairPrompt(draft, attempt.text)) { }
             val retryOutcome = parser.parse(retry.text)
             if (retryOutcome is ParseOutcome.Structured) {
@@ -52,31 +80,18 @@ class WorkflowEngine(
                 attempt = retry
             }
         }
-
         val result = when (outcome) {
             is ParseOutcome.Structured -> outcome.result
             ParseOutcome.Unparseable ->
                 parser.plainTextOrHeuristic(draft, attempt.text, attempt.timeoutReason)
         }
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.ClarityCheck, "Clarity check complete.", isComplete = true)))
-
-        // The part people actually read: the page retold shorter, in order, as prose. The
-        // structured fields above dissect the page, which is a different thing from a
-        // shorter version of it — a list of findings never reads like the text did.
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Rewriting it shorter…")))
-        val prose = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Shorter version ready.", isComplete = true)))
-
-        emit(WorkflowEvent.Result(finalize(draft, result.copy(condensedProse = prose)), fromModel = true))
+        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Insight, "Breakdown ready.", isComplete = true)))
+        emit(WorkflowEvent.Result(finalize(draft, result), fromModel = true))
     }
-
 
     /**
      * Retells the page at roughly a third of its length, using the same contract the book
      * pipeline uses so a page and a chapter read the same way.
-     *
-     * Failure here is not worth losing the rest of the result over: the structured fields
-     * are already in hand, so a blank prose section is a smaller loss than an error screen.
      */
     private suspend fun condenseToProse(
         draft: BookScanDraft,
@@ -97,9 +112,9 @@ class WorkflowEngine(
             .replace("{{PREVIOUS_TAIL}}", "(nothing yet)")
             .replace("{{SOURCE}}", source.take(MAX_PROSE_SOURCE_CHARS))
 
-        val attempt = streamOnce(prompt, onToken)
+        // Give it only the room the target needs, with headroom for the ledger block.
+        val attempt = streamOnce(prompt, maxOutputTokens = budget * 2 + 160, onToken = onToken)
         val prose = BeatContract.split(attempt.text).prose
-        // Reject a summary-shaped answer rather than presenting it as a retelling.
         return if (BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE) prose else ""
     }
 
@@ -108,13 +123,14 @@ class WorkflowEngine(
     /** Collects one full model stream (with timeout), forwarding tokens to [onToken]. */
     private suspend fun streamOnce(
         prompt: String,
+        maxOutputTokens: Int = ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS,
         onToken: suspend (String) -> Unit,
     ): StreamAttempt {
         val accumulated = StringBuilder()
         var timeoutReason: String? = null
         try {
             withTimeout(INFERENCE_TIMEOUT_MS) {
-                sessionManager.stream(prompt).collect { token ->
+                sessionManager.stream(prompt, maxOutputTokens).collect { token ->
                     accumulated.append(token)
                     if (token.isNotBlank()) onToken(token)
                 }

@@ -69,6 +69,14 @@ fun WritingScreen(viewModel: SnapAieViewModel, navController: NavHostController)
                 ).collect { token -> output += token }
             }
             output = engine.cleanOutput(output)
+            if (output.isBlank()) {
+                // Silence reads as a broken button. Say which of the two things happened.
+                output = if (viewModel.container.sessionManager.isModelInstalled()) {
+                    "Nothing came back. Try again, or shorten the text."
+                } else {
+                    "Turn on offline AI from the Snap tab to use the writing tools."
+                }
+            }
             running = false
         }
     }

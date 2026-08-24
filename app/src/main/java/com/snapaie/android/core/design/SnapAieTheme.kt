@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -224,7 +225,12 @@ fun LiquidGlassSurface(
                 ),
         )
 
-        Box(Modifier.fillMaxWidth().padding(contentPadding)) { content() }
+        // A raw Box does not set LocalContentColor the way Surface does, so any Text
+        // inside falls back to black — invisible on a dark sheet. Providing it here is
+        // what stops content having to remember to colour itself.
+        CompositionLocalProvider(LocalContentColor provides scheme.onSurface) {
+            Box(Modifier.fillMaxWidth().padding(contentPadding)) { content() }
+        }
     }
 }
 
@@ -247,6 +253,9 @@ fun PaperSheet(
     // Warm off-white in light, a soft charcoal in dark: paper under lamplight either way,
     // never pure white burning out of a dark screen.
     val paper = if (dark) Color(0xFF1B1E1F) else Color(0xFFFCFBF7)
+    // Ink chosen against the paper, not against the app background: this sheet is the one
+    // surface whose ground does not follow the theme, so its text cannot either.
+    val ink = if (dark) Color(0xFFE8EDEA) else Color(0xFF15191B)
 
     Box(
         modifier = modifier
@@ -255,7 +264,9 @@ fun PaperSheet(
             .background(paper)
             .border(1.dp, Color.White.copy(alpha = if (dark) 0.06f else 0.85f), shape),
     ) {
-        Box(Modifier.fillMaxWidth().padding(contentPadding)) { content() }
+        CompositionLocalProvider(LocalContentColor provides ink) {
+            Box(Modifier.fillMaxWidth().padding(contentPadding)) { content() }
+        }
     }
 }
 
