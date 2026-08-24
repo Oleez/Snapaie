@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.snapaie.android.data.local.KnowledgeScan
@@ -68,8 +69,13 @@ import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.ai.download.ModelDownloadState
 import com.snapaie.android.data.ai.download.ModelDownloadStatus
 import com.snapaie.android.data.ai.model.ModelUpdateStatus
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import com.snapaie.android.core.design.PaperSheet
 import com.snapaie.android.core.design.DesignTokens
 import com.snapaie.android.core.design.LiquidGlassSurface
+import com.snapaie.android.core.design.components.BrandWordmark
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.domain.output.BookContentBuilder
 import com.snapaie.android.ui.model.ModelSetupCard
@@ -110,14 +116,7 @@ fun ScanHubScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
-                    Text("snapaie", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "Cut the fluff. Keep the knowledge. 100% on-device.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                BrandWordmark(subtitle = "Shorter. Clearer. All on your phone.")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     NotificationBell(unreadCount = unreadNotifications, onClick = onOpenNotifications)
                     IconButton(onClick = { navController.navigate(Routes.Settings) }) {
@@ -500,19 +499,12 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
             // read. The breakdown below it is reference, not the result.
             if (current.result.condensedProse.isNotBlank()) {
                 item {
-                    LiquidGlassSurface {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "Shorter version",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            BookContentBuilder.paragraphsOf(current.result.condensedProse)
-                                .forEach { paragraph ->
-                                    Text(paragraph, style = MaterialTheme.typography.bodyLarge)
-                                }
-                        }
-                    }
+                    ProsePage(
+                        title = current.bookTitle.ifBlank { "Shorter version" },
+                        prose = current.result.condensedProse,
+                        wordsIn = current.wordsIn,
+                        wordsOut = current.wordsOut,
+                    )
                 }
             }
             item { ResultSection("Concise meaning", listOf(current.result.conciseMeaning)) }
@@ -594,6 +586,58 @@ private fun MetricPill(value: String, label: String) {
     ) {
         Text(value, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+
+/**
+ * The retelling, set as a page.
+ *
+ * Everything else on this screen is chrome — chips, cards, controls. This is the one part
+ * that exists to be read, so it gets the shape of a printed page instead: paper ground,
+ * wide margins, a serif face, indented paragraphs after the first, and a running foot. The
+ * point is that it should feel like something written rather than something returned.
+ */
+@Composable
+private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int) {
+    val paragraphs = BookContentBuilder.paragraphsOf(prose)
+    PaperSheet {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.SemiBold,
+                ),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+
+            paragraphs.forEachIndexed { index, paragraph ->
+                Text(
+                    text = paragraph,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontFamily = FontFamily.Serif,
+                        lineHeight = 27.sp,
+                    ),
+                    textAlign = TextAlign.Justify,
+                    // First paragraph flush, the rest indented: the convention every
+                    // printed book uses, and the cheapest way to read as a page.
+                    modifier = Modifier.padding(start = if (index == 0) 0.dp else 14.dp),
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+            Text(
+                if (wordsIn > 0 && wordsOut > 0) {
+                    "$wordsIn words down to $wordsOut"
+                } else {
+                    "snapaie"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+        }
     }
 }
 

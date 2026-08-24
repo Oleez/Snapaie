@@ -19,6 +19,7 @@ data class UserSettings(
     val explainStyle: String = "Auto",
     val outputLanguage: String = "en",
     val themeMode: String = "SnapDark", // SnapDark | Light | Aurora
+    val accentColor: String = "mint", // see AccentPalette
     val textScale: Float = 1.0f,
     val bubblesMode: String = "on", // on | slower | faster | off
     val ttsEnabled: Boolean = true,
@@ -61,6 +62,7 @@ class AppPreferencesRepository(private val context: Context) {
     private val explainStyle = stringPreferencesKey("explain_style")
     private val outputLanguage = stringPreferencesKey("output_language")
     private val themeMode = stringPreferencesKey("theme_mode")
+    private val accentColor = stringPreferencesKey("accent_color")
     private val textScale = floatPreferencesKey("text_scale")
     private val bubblesMode = stringPreferencesKey("bubbles_mode")
     private val ttsEnabled = booleanPreferencesKey("tts_enabled")
@@ -115,6 +117,7 @@ class AppPreferencesRepository(private val context: Context) {
             explainStyle = p[explainStyle] ?: "Auto",
             outputLanguage = p[outputLanguage] ?: "en",
             themeMode = p[themeMode] ?: "SnapDark",
+            accentColor = p[accentColor] ?: "mint",
             textScale = p[textScale] ?: 1.0f,
             bubblesMode = p[bubblesMode] ?: "on",
             ttsEnabled = p[ttsEnabled] != false,
@@ -151,6 +154,8 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setExplainStyle(value: String) = edit { it[explainStyle] = value }
     suspend fun setOutputLanguage(value: String) = edit { it[outputLanguage] = value }
     suspend fun setThemeMode(value: String) = edit { it[themeMode] = value }
+
+    suspend fun setAccentColor(value: String) = edit { it[accentColor] = value }
     suspend fun setTextScale(value: Float) = edit { it[textScale] = value }
     suspend fun setBubblesMode(value: String) = edit { it[bubblesMode] = value }
     suspend fun setTtsEnabled(value: Boolean) = edit { it[ttsEnabled] = value }

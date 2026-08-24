@@ -38,6 +38,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,7 @@ import androidx.navigation.navArgument
 import com.snapaie.android.AppContainer
 import com.snapaie.android.IngestRequest
 import com.snapaie.android.core.design.SnapAieTheme
+import com.snapaie.android.core.design.AccentPalette
 import com.snapaie.android.core.design.ThemeMode
 import com.snapaie.android.core.design.components.AmbientBubbles
 import com.snapaie.android.core.design.snapScreenBackground
@@ -114,8 +117,9 @@ fun SnapAieApp(
         initialValue = com.snapaie.android.data.preferences.UserSettings(),
     )
     val themeMode = ThemeMode.fromStored(settings.themeMode)
+    val accent = AccentPalette.fromStored(settings.accentColor)
 
-    SnapAieTheme(mode = themeMode, textScale = settings.textScale) {
+    SnapAieTheme(mode = themeMode, accent = accent, textScale = settings.textScale) {
         when (onboardingGate) {
             null ->
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -244,9 +248,25 @@ private fun MainShell(
                 ) {
                     // NavigationBar consumes the gesture inset itself, so no
                     // navigationBarsPadding() here — that stacked a second one.
+                    // Translucent, with a hairline catch along its top edge. An opaque bar
+                    // cuts the background off at the bottom of every screen, which breaks
+                    // the illusion that anything is floating above anything else.
                     NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
                         tonalElevation = 0.dp,
+                        modifier = Modifier.drawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Color.White.copy(alpha = 0.24f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                                size = androidx.compose.ui.geometry.Size(size.width, 1.dp.toPx()),
+                            )
+                        },
                     ) {
                         BottomTab.entries.forEach { tab ->
                             NavigationBarItem(

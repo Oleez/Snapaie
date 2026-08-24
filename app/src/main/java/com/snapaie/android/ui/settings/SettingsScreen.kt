@@ -45,6 +45,15 @@ import com.snapaie.android.core.diagnostics.CrashLog
 import com.snapaie.android.ui.notifications.LocalSnapToast
 import com.snapaie.android.ui.SnapAieViewModel
 import com.snapaie.android.ui.chat.ChatAppearance
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import com.snapaie.android.core.design.AccentPalette
 import com.snapaie.android.ui.nav.Routes
 import kotlinx.coroutines.launch
 import com.snapaie.android.core.design.components.ScreenHeader
@@ -132,6 +141,24 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                         )
                     }
                 }
+                Text("Accent colour", style = MaterialTheme.typography.labelLarge)
+                // Swatches rather than names: nobody picks a colour by reading the word
+                // for it, and the row doubles as a preview of what the app will look like.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    AccentPalette.entries.forEach { option ->
+                        AccentSwatch(
+                            option = option,
+                            selected = settings.accentColor == option.id,
+                            onPick = { scope.launch { prefs.setAccentColor(option.id) } },
+                        )
+                    }
+                }
+
                 Text("Text size", style = MaterialTheme.typography.labelLarge)
                 Slider(
                     value = settings.textScale,
@@ -359,6 +386,45 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                 }) { Text("Erase everything") }
             },
             dismissButton = { TextButton(onClick = { showReset = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+
+/**
+ * One accent choice, shown as the thing it does.
+ *
+ * The ring around the selected swatch is drawn outside the fill rather than over it, so
+ * the colour itself is never obscured by the indicator that it was chosen.
+ */
+@Composable
+private fun AccentSwatch(
+    option: AccentPalette,
+    selected: Boolean,
+    onPick: () -> Unit,
+) {
+    val ring by animateDpAsState(if (selected) 3.dp else 0.dp, label = "accentRing")
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.clickable(onClick = onPick),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .border(ring, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f), CircleShape)
+                .padding(ring + 3.dp)
+                .clip(CircleShape)
+                .background(option.brandBrush),
+        )
+        Text(
+            option.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
     }
 }
