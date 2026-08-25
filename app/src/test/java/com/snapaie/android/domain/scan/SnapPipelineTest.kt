@@ -7,6 +7,7 @@ import com.snapaie.android.domain.condense.Abridger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -66,7 +67,10 @@ class SnapPipelineTest {
         }
     }
 
-    private fun engineWith(generator: TextGenerator) = WorkflowEngine(
+    private fun engineWith(
+        generator: TextGenerator,
+        nowNanos: () -> Long = System::nanoTime,
+    ) = WorkflowEngine(
         sessionManager = generator,
         prompts = { path ->
             // Mirrors the real template's placeholders, so a slot that stops being filled
@@ -83,11 +87,16 @@ class SnapPipelineTest {
             override fun buildScanPrompt(draft: BookScanDraft) = "scan"
             override fun buildRepairPrompt(draft: BookScanDraft, previousOutput: String) = "repair"
         },
+        nowNanos = nowNanos,
     )
 
-    private suspend fun proseFrom(generator: TextGenerator, draft: BookScanDraft): String {
+    private suspend fun proseFrom(
+        generator: TextGenerator,
+        draft: BookScanDraft,
+        nowNanos: () -> Long = System::nanoTime,
+    ): String {
         var prose = ""
-        engineWith(generator).run(draft).collect { event ->
+        engineWith(generator, nowNanos).run(draft).collect { event ->
             if (event is WorkflowEvent.Result) prose = event.result.condensedProse
         }
         return prose
@@ -117,10 +126,39 @@ class SnapPipelineTest {
                 }
             },
         )
+        // The device from the report: its build has no image encoder, so every photo used
+        // to end in that error. It no longer even asks — the recognised text is enough —
+        // and the page comes back from the author's own sentences instead.
         val prose = proseFrom(fake, draft(image = photo.absolutePath))
-        assertTrue("image path was not tried", fake.imageCalls > 0)
-        assertTrue("did not fall through to text", fake.textCalls > 0)
+        assertEquals("a device that cannot read images should not be asked to", 0, fake.imageCalls)
         assertTrue("no prose produced", prose.isNotBlank())
+    }
+
+    @Test
+    fun `an unreadable photo with no text is explained, not left blank`() = runTest {
+        // Nothing recognised and nothing readable: there is genuinely no page to shorten,
+        // and saying so is better than inventing one or showing an empty panel.
+        val fake = Fake(onImage = { flow<String> { error("Vision executor should not be null") } })
+        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
+        assertTrue("the photo was never tried", fake.imageCalls > 0)
+        assertTrue("content was invented from an unreadable page", prose.isBlank())
+    }
+
+    @Test
+    fun `a page the recogniser read does not wait for the photo to be read again`() = runTest {
+        // Reading an image runs the encoder before a single word is generated, and on a
+        // phone that is most of the wait. When the text is already in hand it buys nothing
+        // — and paying for it on every snap is why a capture appeared to never finish.
+        val fake = Fake()
+        proseFrom(fake, draft(image = photo.absolutePath))
+        assertEquals("the photo was read even though the page was already recognised", 0, fake.imageCalls)
+    }
+
+    @Test
+    fun `a photo is still read when the recogniser found nothing`() = runTest {
+        val fake = Fake()
+        proseFrom(fake, draft(text = "", image = photo.absolutePath))
+        assertTrue("the photo was never read", fake.imageCalls > 0)
     }
 
     @Test
@@ -129,7 +167,7 @@ class SnapPipelineTest {
         val fake = Fake(
             onImage = { flow { emit("LiteRT-LM stream error: Status Code: 3. Message: Vision executor should not be null.") } },
         )
-        val prose = proseFrom(fake, draft(image = photo.absolutePath))
+        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
         listOf("LiteRT", "Status Code", "executor", "stream error").forEach {
             assertFalse("leaked '$it' into the reply:\n$prose", prose.contains(it, ignoreCase = true))
         }
@@ -178,10 +216,48 @@ class SnapPipelineTest {
     }
 
     private companion object {
+        /**
+         * A snap that has run out of time should stop asking, not keep queueing calls.
+         * Generous, because the point is that the number is bounded at all.
+         */
+        const val MAX_CALLS_BEFORE_GIVING_UP = 4
+
         val GOOD_PROSE = "Everyone holds his fortune in his own hands, like a sculptor with raw " +
             "material, and the skill of shaping it must be learned. There is a form of " +
             "intelligence behind the greatest discoveries that no school teaches. It arrives " +
             "under pressure: a deadline, a crisis, a problem that will not wait."
+    }
+
+    @Test
+    fun `a slow model cannot make a snap run without end`() = runTest {
+        // Every call used to have its own four-minute ceiling with no budget for the snap
+        // as a whole, so a photo could take a vision pass, then an abridgement of however
+        // many runs the page needed, then a retelling — each free to run for minutes. The
+        // ceilings added up, and a capture appeared to never finish.
+        // Long enough to need a dozen runs, so the only thing that can keep the number of
+        // calls small is the budget running out.
+        val long = (0 until 3_000).joinToString(" ") { "Point number $it is worth recording here." }
+        var calls = 0
+        // A clock the model drives: every call it takes moves the snap a minute closer to
+        // its budget, so the deadline is genuinely reached rather than merely configured.
+        var clock = 0L
+        val fake = Fake(onText = {
+            calls++
+            clock += 60_000L * 1_000_000L
+            flow { emit(GOOD_PROSE) }
+        })
+
+        val prose = proseFrom(fake, draft(text = long), nowNanos = { clock })
+
+        assertTrue("a snap must still produce a page", prose.isNotBlank())
+        assertTrue(
+            "the snap kept calling a model that never answers ($calls calls)",
+            calls <= MAX_CALLS_BEFORE_GIVING_UP,
+        )
+        // What comes back is the author's own text, chosen locally once time ran out.
+        Abridger.split(prose).forEach {
+            assertTrue("'${it.text}' is not in the source verbatim", long.contains(it.text))
+        }
     }
 
     @Test
@@ -274,4 +350,5 @@ class SnapPipelineTest {
         val prose = proseFrom(fake, draft(style = ExplainStyle.Bullets))
         assertTrue("the list was discarded:\n$prose", prose.contains("Fortune is shaped"))
     }
+
 }

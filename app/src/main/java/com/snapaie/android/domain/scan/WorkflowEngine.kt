@@ -22,6 +22,14 @@ class WorkflowEngine(
     private val sessionManager: TextGenerator,
     private val prompts: PromptSource,
     private val scanPrompts: ScanPrompts,
+    /**
+     * Monotonic nanoseconds, injected so the snap's time budget can be tested.
+     *
+     * A test runs on virtual time; reading the wall clock from inside would mean the
+     * deadline never expires under test and the guarantee it provides — that a snap always
+     * finishes — would be asserted by a test that never exercises it.
+     */
+    private val nowNanos: () -> Long = System::nanoTime,
 ) {
     private val parser = StructuredOutputParser()
 
@@ -141,6 +149,7 @@ class WorkflowEngine(
     private suspend fun abridge(
         source: String,
         targetWords: Int,
+        deadline: Deadline,
         onToken: suspend (String) -> Unit,
     ): String {
         val sentences = Abridger.split(source)
@@ -164,7 +173,13 @@ class WorkflowEngine(
                 // A list of indices is tiny, so the budget can be small; four tokens a
                 // sentence is generous even when the model keeps every one of them.
                 val budget = (count * 4 + 32).coerceAtMost(ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
-                streamOnce(prompt, budget, onToken).text.takeIf { it.isNotBlank() }
+                // Out of time: the remaining runs are chosen locally, which is instant and
+                // still returns the author's sentences rather than nothing at all.
+                if (deadline.expired) {
+                    null
+                } else {
+                    streamOnce(prompt, budget, deadline, onToken).text.takeIf { it.isNotBlank() }
+                }
             }
             if (walk.keep.isNotEmpty()) {
                 val assembled = Abridger.assemble(sentences, walk.keep)
@@ -194,6 +209,7 @@ class WorkflowEngine(
         source: String,
         template: String,
         budgetTokens: Int,
+        deadline: Deadline,
         onToken: suspend (String) -> Unit,
     ): String {
         val room = PromptBudget.maxSourceChars(template, budgetTokens)
@@ -201,7 +217,7 @@ class WorkflowEngine(
         if (source.length <= room) return source
         // Aim slightly under the window so the reduced text is certain to fit.
         val targetWords = ((room * FIT_MARGIN) / AVERAGE_WORD_CHARS).toInt().coerceAtLeast(1)
-        val reduced = abridge(source, targetWords, onToken)
+        val reduced = abridge(source, targetWords, deadline, onToken)
         return if (reduced.isBlank()) source.take(room) else reduced.take(room)
     }
 
@@ -258,10 +274,19 @@ class WorkflowEngine(
 
         var best = ""
         var reason: String? = null
+        val deadline = startDeadline(SNAP_BUDGET_MS)
 
-        // 1. The photograph, read and retold in one pass.
-        if (hasImage) {
-            val raw = streamVision(promptFor(template, budget, imageMode = true, style = draft.mode), draft.imagePath, budgetTokens, onToken)
+        // 1. The photograph, read and retold in one pass — but only when the recogniser
+        //    could not read the page itself.
+        //
+        //    Reading an image is by far the slowest thing the model does: the encoder runs
+        //    before a single word is generated, and on a phone that is most of the wait.
+        //    When the recogniser already produced the text, spending that wait buys
+        //    nothing — the abridgement below works from the same words and returns the
+        //    author's own sentences rather than a retelling of them. So the photo is read
+        //    when it is the only way to know what the page says, which is what it was for.
+        if (hasImage && source.length < MIN_PROSE_SOURCE_CHARS) {
+            val raw = streamVision(promptFor(template, budget, imageMode = true, style = draft.mode), draft.imagePath, budgetTokens, deadline, onToken)
             val prose = BeatContract.cleanProse(raw.text)
             if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
             if (prose.length > best.length && !BeatContract.isRuntimeNoise(prose)) best = prose
@@ -272,18 +297,18 @@ class WorkflowEngine(
         //    Only for styles that are "the same text, shorter" — a list or an analogy is a
         //    different piece of writing and cannot be reached by deletion.
         if (draft.mode.canAbridge && source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val abridged = abridge(source, budget, onToken)
+            val abridged = abridge(source, budget, deadline, onToken)
             if (abridged.isNotBlank() && !BeatContract.isRuntimeNoise(abridged)) {
                 return ProseAttempt(abridged, null)
             }
         }
 
         // 3. Ask for a retelling instead, for pages where deletion alone reads badly.
-        if (source.length >= MIN_PROSE_SOURCE_CHARS) {
+        if (source.length >= MIN_PROSE_SOURCE_CHARS && !deadline.expired) {
             val textPrompt = promptFor(template, budget, imageMode = false, style = draft.mode) +
                 System.lineSeparator() + "The page:" + System.lineSeparator() +
-                materialFor(source, template, budgetTokens, onToken)
-            val raw = streamOnce(textPrompt, budgetTokens, onToken)
+                materialFor(source, template, budgetTokens, deadline, onToken)
+            val raw = streamOnce(textPrompt, budgetTokens, deadline, onToken)
             val prose = BeatContract.cleanProse(raw.text)
             if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
             if (prose.length > best.length && !BeatContract.isRuntimeNoise(prose)) best = prose
@@ -342,12 +367,15 @@ class WorkflowEngine(
         prompt: String,
         imagePath: String,
         maxOutputTokens: Int,
+        deadline: Deadline,
         onToken: suspend (String) -> Unit,
     ): StreamAttempt {
         val accumulated = StringBuilder()
         var timeoutReason: String? = null
+        val allowed = deadline.capFor(VISION_TIMEOUT_MS)
+        if (allowed <= 0L) return StreamAttempt("", "There was not enough time left to read the photo.")
         try {
-            withTimeout(INFERENCE_TIMEOUT_MS) {
+            withTimeout(allowed) {
                 sessionManager.streamWithImage(prompt, imagePath, maxOutputTokens).collect { token ->
                     accumulated.append(token)
                     if (token.isNotBlank()) onToken(token)
@@ -366,16 +394,45 @@ class WorkflowEngine(
 
     private data class StreamAttempt(val text: String, val timeoutReason: String?)
 
+    /**
+     * How long a whole snap may spend in the model.
+     *
+     * Every model call had its own four-minute ceiling and there was no budget for the
+     * snap as a whole, so the ceilings added up. A photographed page could take a vision
+     * pass, then an abridgement — which is now as many runs as the page needs — and then a
+     * retelling, each free to run for four minutes on its own. That is the "condensing
+     * forever, or never finishing" this replaces.
+     *
+     * One clock for the whole snap instead. Calls are cut short as it runs down, and once
+     * it is spent the remaining work is done locally, which is instant and still returns
+     * the author's own sentences. A page always comes back.
+     */
+    private class Deadline(private val endNanos: Long, private val nowNanos: () -> Long) {
+        val expired: Boolean get() = nowNanos() >= endNanos
+
+        val remainingMillis: Long
+            get() = ((endNanos - nowNanos()) / 1_000_000L).coerceAtLeast(0L)
+
+        /** The shorter of what this call is allowed and what the snap has left. */
+        fun capFor(perCallMillis: Long): Long = minOf(perCallMillis, remainingMillis)
+    }
+
+    private fun startDeadline(millis: Long) =
+        Deadline(nowNanos() + millis * 1_000_000L, nowNanos)
+
     /** Collects one full model stream (with timeout), forwarding tokens to [onToken]. */
     private suspend fun streamOnce(
         prompt: String,
         maxOutputTokens: Int = DEFAULT_MAX_OUTPUT_TOKENS,
+        deadline: Deadline? = null,
         onToken: suspend (String) -> Unit,
     ): StreamAttempt {
         val accumulated = StringBuilder()
         var timeoutReason: String? = null
+        val allowed = deadline?.capFor(INFERENCE_TIMEOUT_MS) ?: INFERENCE_TIMEOUT_MS
+        if (allowed <= 0L) return StreamAttempt("", "There was not enough time left.")
         try {
-            withTimeout(INFERENCE_TIMEOUT_MS) {
+            withTimeout(allowed) {
                 sessionManager.stream(prompt, maxOutputTokens).collect { token ->
                     accumulated.append(token)
                     if (token.isNotBlank()) onToken(token)
@@ -401,7 +458,19 @@ class WorkflowEngine(
         )
 
     private companion object {
-        const val INFERENCE_TIMEOUT_MS = 240_000L
+        const val INFERENCE_TIMEOUT_MS = 60_000L
+
+        /** Reading a photo is the slowest thing the model does, so it gets more room. */
+        const val VISION_TIMEOUT_MS = 120_000L
+
+        /**
+         * The whole snap's allowance in the model. Past this the rest is done locally.
+         *
+         * Chosen to be longer than a page needs and shorter than a person will wait: what
+         * matters is that it is finite and shared, so no combination of rungs and runs can
+         * add up to an answer that never comes.
+         */
+        const val SNAP_BUDGET_MS = 150_000L
 
         /** A page shorter than this has nothing worth condensing. */
         const val MIN_PROSE_SOURCE_CHARS = 180
