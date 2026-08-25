@@ -2,6 +2,7 @@ package com.snapaie.android.domain.scan
 
 import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
+import com.snapaie.android.data.model.ExplainStyle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -39,8 +40,11 @@ class SnapPipelineTest {
         java.io.File.createTempFile("page", ".jpg").apply { writeBytes(ByteArray(64)); deleteOnExit() }
     }
 
-    private fun draft(text: String = page, image: String = "") =
-        BookScanDraft(pageText = text, imagePath = image)
+    private fun draft(
+        text: String = page,
+        image: String = "",
+        style: ExplainStyle = ExplainStyle.Auto,
+    ) = BookScanDraft(pageText = text, imagePath = image, mode = style)
 
     private class Fake(
         val installed: Boolean = true,
@@ -64,7 +68,13 @@ class SnapPipelineTest {
     private fun engineWith(generator: TextGenerator) = WorkflowEngine(
         sessionManager = generator,
         prompts = { path ->
-            if (path.endsWith("condense_page.md")) "Retell it in {{TARGET_WORDS}} words. {{SOURCE_BLOCK}}" else ""
+            // Mirrors the real template's placeholders, so a slot that stops being filled
+            // in production fails here too.
+            if (path.endsWith("condense_page.md")) {
+                "Retell this page shorter.\n{{STYLE}}\nAim for about {{TARGET_WORDS}} words.\n{{SOURCE_BLOCK}}"
+            } else {
+                ""
+            }
         },
         scanPrompts = object : ScanPrompts {
             override fun buildScanPrompt(draft: BookScanDraft) = "scan"
@@ -169,5 +179,55 @@ class SnapPipelineTest {
             "material, and the skill of shaping it must be learned. There is a form of " +
             "intelligence behind the greatest discoveries that no school teaches. It arrives " +
             "under pressure: a deadline, a crisis, a problem that will not wait."
+    }
+
+    @Test
+    fun `the chosen style reaches the prompt`() = runTest {
+        // The regression this pins: the style used to stop at the structured breakdown, so
+        // every chip produced an identical page.
+        ExplainStyle.entries.forEach { style ->
+            var seen = ""
+            val fake = Fake(onText = { prompt -> seen = prompt; flow { emit(GOOD_PROSE) } })
+            proseFrom(fake, draft(style = style))
+            assertTrue(
+                "${style.label} never reached the prompt",
+                seen.contains(style.condenseInstruction),
+            )
+        }
+    }
+
+    @Test
+    fun `a shorter style asks for fewer words`() = runTest {
+        val asked = mutableMapOf<ExplainStyle, Int>()
+        listOf(ExplainStyle.Concise, ExplainStyle.Auto, ExplainStyle.Detailed).forEach { style ->
+            var words = 0
+            val fake = Fake(onText = { prompt ->
+                words = Regex("""about (\d+) words""").find(prompt)?.groupValues?.get(1)?.toInt() ?: 0
+                flow { emit(GOOD_PROSE) }
+            })
+            proseFrom(fake, draft(style = style))
+            asked[style] = words
+        }
+        assertTrue("Concise asked for nothing", (asked[ExplainStyle.Concise] ?: 0) > 0)
+        assertTrue(
+            "Concise ${asked[ExplainStyle.Concise]} should be under Auto ${asked[ExplainStyle.Auto]}",
+            asked[ExplainStyle.Concise]!! < asked[ExplainStyle.Auto]!!,
+        )
+        assertTrue(
+            "Auto ${asked[ExplainStyle.Auto]} should be under Detailed ${asked[ExplainStyle.Detailed]}",
+            asked[ExplainStyle.Auto]!! < asked[ExplainStyle.Detailed]!!,
+        )
+    }
+
+    @Test
+    fun `a list style is not rejected for looking like a list`() = runTest {
+        // Bullets and Steps fail every rule written for continuous narrative, so judging
+        // them by those rules threw away exactly the output that was asked for.
+        val list = "- Fortune is shaped like raw material.\n" +
+            "- A rare intelligence drives discovery.\n" +
+            "- It shows up under pressure and deadline."
+        val fake = Fake(onText = { flow { emit(list) } })
+        val prose = proseFrom(fake, draft(style = ExplainStyle.Bullets))
+        assertTrue("the list was discarded:\n$prose", prose.contains("Fortune is shaped"))
     }
 }

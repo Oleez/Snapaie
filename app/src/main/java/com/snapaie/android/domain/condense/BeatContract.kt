@@ -65,8 +65,31 @@ object BeatContract {
      * Strips the scaffolding small models wrap around an answer — code fences, a restated
      * instruction, a leading label — without touching the prose itself.
      */
+    /**
+     * Runtime failure text that has been observed arriving as *content* rather than as a
+     * thrown error — glued straight onto the front of a real retelling with no separator,
+     * and shipped to the reader as part of the page.
+     *
+     * The channel that did that is fixed, but a reply is worth checking anyway: this is the
+     * last point before text reaches someone, and no page ever legitimately says these.
+     */
+    private val RUNTIME_NOISE = listOf(
+        "stream error",
+        "Status Code:",
+        "should not be null",
+        "TryLoadingVisionExecutor",
+        "LiteRT",
+    )
+
+    /** True when the reply is runtime noise rather than a retelling. */
+    fun isRuntimeNoise(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return false
+        return RUNTIME_NOISE.count { trimmed.contains(it, ignoreCase = true) } >= 2
+    }
+
     fun cleanProse(raw: String): String {
-        var text = raw.trim()
+        var text = stripRuntimeNoise(raw.trim())
         if (text.startsWith("```")) {
             text = text.removePrefix("```").substringAfter('\n', "").substringBeforeLast("```").trim()
         }
@@ -76,6 +99,26 @@ object BeatContract {
             }
         }
         return text.trim()
+    }
+
+    /**
+     * Removes a leading runtime error, keeping whatever real text followed it.
+     *
+     * The observed shape is the message running straight into the prose without so much as
+     * a space, so the cut is made at the end of the last marker's sentence rather than at a
+     * line break, which there is not one of.
+     */
+    private fun stripRuntimeNoise(text: String): String {
+        val last = RUNTIME_NOISE
+            .mapNotNull { marker -> text.lastIndexOf(marker, ignoreCase = true).takeIf { it >= 0 } }
+            .maxOrNull() ?: return text
+
+        var cut = text.indexOf('.', last)
+        while (cut >= 0 && cut + 1 < text.length && !text[cut + 1].isLetter() && text[cut + 1] != ' ') {
+            cut = text.indexOf('.', cut + 1)
+        }
+        if (cut < 0) return ""
+        return text.substring(cut + 1).trim()
     }
 
     /**

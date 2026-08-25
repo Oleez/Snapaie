@@ -281,51 +281,32 @@ fun Modifier.snapScreenBackground(): Modifier {
     val accent = LocalAccent.current
     val dark = scheme.background.luminance() < 0.5f
 
-    // Two washes of the accent bled in from opposite corners over the base ground. A flat
-    // fill is most of why an app reads as dated: there is nothing for the glass above it to
-    // refract, so every sheet looks pasted on rather than floating over anything.
-    val transition = rememberInfiniteTransition(label = "ground")
-    val drift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(18_000), RepeatMode.Reverse),
-        label = "groundDrift",
-    )
-
+    // A still background, not a moving one.
+    //
+    // This used to drift on an eighteen-second loop, which meant every screen in the app
+    // was animating continuously behind whatever the reader was trying to read — and on a
+    // page of prose that is not atmosphere, it is a distraction that never stops. It also
+    // kept a composition awake permanently, redrawing full-screen gradients on a phone
+    // that is meant to be spending its battery on the model instead.
+    //
+    // One warm corner, one cool one, sized to the surface so a tall screen never falls
+    // outside them and goes flat.
     return this
-        .background(if (dark) scheme.background else Color(0xFFF6F7FB))
-        // Washes sized to the surface rather than to fixed pixel offsets. With hard-coded
-        // radii the middle of a tall screen fell outside every gradient and went flat
-        // black, which is why long screens like Settings looked switched off.
+        .background(if (dark) scheme.background else Color(0xFFF7F8FB))
         .drawWithCache {
             val warm = Brush.radialGradient(
-                colors = listOf(
-                    accent.primary.copy(alpha = if (dark) 0.26f else 0.22f),
-                    Color.Transparent,
-                ),
-                center = Offset(size.width * (0.15f + drift * 0.25f), size.height * 0.06f),
-                radius = size.maxDimension * 0.75f,
+                colors = listOf(accent.primary.copy(alpha = if (dark) 0.20f else 0.16f), Color.Transparent),
+                center = Offset(size.width * 0.12f, size.height * 0.04f),
+                radius = size.maxDimension * 0.7f,
             )
             val cool = Brush.radialGradient(
-                colors = listOf(
-                    accent.tertiary.copy(alpha = if (dark) 0.22f else 0.20f),
-                    Color.Transparent,
-                ),
-                center = Offset(size.width * (0.9f - drift * 0.2f), size.height * 0.62f),
-                radius = size.maxDimension * 0.8f,
-            )
-            val lift = Brush.radialGradient(
-                colors = listOf(
-                    accent.secondary.copy(alpha = if (dark) 0.14f else 0.12f),
-                    Color.Transparent,
-                ),
-                center = Offset(size.width * 0.45f, size.height * 1.02f),
-                radius = size.maxDimension * 0.6f,
+                colors = listOf(accent.tertiary.copy(alpha = if (dark) 0.16f else 0.14f), Color.Transparent),
+                center = Offset(size.width * 0.95f, size.height * 0.55f),
+                radius = size.maxDimension * 0.75f,
             )
             onDrawBehind {
                 drawRect(warm)
                 drawRect(cool)
-                drawRect(lift)
             }
         }
 }

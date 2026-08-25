@@ -118,9 +118,25 @@ class WorkflowEngine(
     private fun localShorten(draft: BookScanDraft): String {
         val source = draft.pageText.trim()
         if (source.length < MIN_PROSE_SOURCE_CHARS) return ""
-        val budget = (Segmenter.countWords(source) * PROSE_RATIO).toInt()
-            .coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-        return ExtractiveCondenser.shorten(source, budget)
+        return ExtractiveCondenser.shorten(
+            source,
+            budgetFor(Segmenter.countWords(source), draft.mode.condenseRatio),
+        )
+    }
+
+    /**
+     * Words to aim for, floored gently.
+     *
+     * The book pipeline floors a passage at sixty words, which is right for a nine-hundred
+     * word beat and wrong for a single page: on a short page every style hit the floor and
+     * asked for the same length, so Concise and Detailed produced identical output and the
+     * chips appeared to do nothing. The floor scales with the page instead, and only stops
+     * at the point where a retelling would have nothing left to say.
+     */
+    private fun budgetFor(sourceWords: Int, ratio: Float): Int {
+        val target = (sourceWords * ratio).toInt()
+        val floor = minOf(BudgetGovernor.MIN_BEAT_WORDS, sourceWords / 3)
+        return target.coerceAtLeast(floor).coerceAtLeast(ABSOLUTE_MIN_WORDS)
     }
 
     /** The retelling, plus why it is missing when it is. */
@@ -154,7 +170,9 @@ class WorkflowEngine(
         if (template.isBlank()) return ProseAttempt("", "The condenser is missing from this build.")
 
         val sourceWords = if (source.isNotBlank()) Segmenter.countWords(source) else TYPICAL_PAGE_WORDS
-        val budget = (sourceWords * PROSE_RATIO).toInt().coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
+        // The chosen style decides how short, and how it reads. Both were previously
+        // ignored here, which is why every style produced the same page.
+        val budget = budgetFor(sourceWords, draft.mode.condenseRatio)
         val budgetTokens = budget * 2 + 80
 
         var best = ""
@@ -162,22 +180,22 @@ class WorkflowEngine(
 
         // 1. The photograph, read and retold in one pass.
         if (hasImage) {
-            val raw = streamVision(promptFor(template, budget, imageMode = true), draft.imagePath, budgetTokens, onToken)
+            val raw = streamVision(promptFor(template, budget, imageMode = true, style = draft.mode), draft.imagePath, budgetTokens, onToken)
             val prose = BeatContract.cleanProse(raw.text)
-            if (accepted(prose, source, budget)) return ProseAttempt(prose, null)
-            if (prose.length > best.length) best = prose
+            if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
+            if (prose.length > best.length && !BeatContract.isRuntimeNoise(prose)) best = prose
             reason = raw.timeoutReason ?: "The photo could not be read clearly."
         }
 
         // 2. The recognised text, which is available even when the image path is not.
         if (source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val textPrompt = promptFor(template, budget, imageMode = false) +
+            val textPrompt = promptFor(template, budget, imageMode = false, style = draft.mode) +
                 System.lineSeparator() + "The page:" + System.lineSeparator() +
                 source.take(MAX_PROSE_SOURCE_CHARS)
             val raw = streamOnce(textPrompt, budgetTokens, onToken)
             val prose = BeatContract.cleanProse(raw.text)
-            if (accepted(prose, source, budget)) return ProseAttempt(prose, null)
-            if (prose.length > best.length) best = prose
+            if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
+            if (prose.length > best.length && !BeatContract.isRuntimeNoise(prose)) best = prose
             reason = raw.timeoutReason ?: reason ?: "The result did not come back as a retelling."
         }
 
@@ -198,15 +216,36 @@ class WorkflowEngine(
         return ProseAttempt("", reason ?: "Nothing came back. Try again.")
     }
 
-    private fun promptFor(template: String, budget: Int, imageMode: Boolean): String = template
+    private fun promptFor(
+        template: String,
+        budget: Int,
+        imageMode: Boolean,
+        style: com.snapaie.android.data.model.ExplainStyle,
+    ): String = template
         .replace("{{TARGET_WORDS}}", budget.toString())
+        .replace("{{STYLE}}", style.condenseInstruction)
         .replace(
             "{{SOURCE_BLOCK}}",
             if (imageMode) "The page is the attached image. Read it, then retell it." else "",
         )
 
-    private fun accepted(prose: String, source: String, budget: Int): Boolean =
-        prose.isNotBlank() && BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE
+    /**
+     * Bullets and Steps are supposed to come back as lists, so the prose rules cannot
+     * judge them — a list of short lines fails a check written for continuous narrative.
+     * They are held to length and non-emptiness only.
+     */
+    private fun accepted(
+        prose: String,
+        source: String,
+        budget: Int,
+        style: com.snapaie.android.data.model.ExplainStyle,
+    ): Boolean {
+        if (prose.isBlank()) return false
+        // Never let runtime failure text pass as a retelling, however long it is.
+        if (BeatContract.isRuntimeNoise(prose)) return false
+        if (style.isListStyle) return Segmenter.countWords(prose) >= budget / 4
+        return BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE
+    }
 
     private suspend fun streamVision(
         prompt: String,
@@ -281,6 +320,9 @@ class WorkflowEngine(
         /** Words on a typical book page, used when nothing was recognised to measure. */
         const val TYPICAL_PAGE_WORDS = 320
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560
+
+        /** Below this there is no retelling left, only a label. */
+        const val ABSOLUTE_MIN_WORDS = 18
 
         /** Keep an imperfect retelling rather than show nothing. */
         const val MIN_KEEPABLE_PROSE_CHARS = 120

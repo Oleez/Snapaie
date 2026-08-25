@@ -6,14 +6,64 @@ import kotlinx.serialization.Serializable
  * Unified explanation style axis (merges the legacy 5 KnowledgeModes with the
  * extension's 6 explanation styles). Legacy DB rows map via [fromStored].
  */
-enum class ExplainStyle(val label: String, val description: String) {
-    Auto("Auto", "Pick the single best explanation style for this text automatically."),
-    Concise("Concise", "Compress aggressively and keep only essential meaning."),
-    Detailed("Detailed", "Explain thoroughly with depth, nuance, and hidden meaning."),
-    Bullets("Bullets", "Summarize instantly as skimmable bullet points."),
-    Analogy("Analogy", "Explain through a vivid, relatable analogy."),
-    Steps("Steps", "Break it down step-by-step for exam-ready understanding."),
+enum class ExplainStyle(
+    val label: String,
+    val description: String,
+    /**
+     * Share of the page this style aims to produce.
+     *
+     * These are what make the chips mean something. Until now the style only reached the
+     * structured breakdown, so choosing Concise and choosing Detailed produced identical
+     * output — the chips looked like controls but changed nothing about the page you read.
+     */
+    val condenseRatio: Float,
+    /** Appended to the condense prompt to shape the writing, not just its length. */
+    val condenseInstruction: String,
+) {
+    Auto(
+        "Auto", "Pick the single best explanation style for this text automatically.",
+        condenseRatio = 0.34f,
+        condenseInstruction = "Retell it as continuous prose in the voice of the original.",
+    ),
+    Concise(
+        "Concise", "Compress aggressively and keep only essential meaning.",
+        condenseRatio = 0.18f,
+        condenseInstruction =
+            "Be ruthless. Keep every event and fact but say each in as few words as it takes. " +
+                "Short sentences. No scene-setting, no restatement, no flourish.",
+    ),
+    Detailed(
+        "Detailed", "Explain thoroughly with depth, nuance, and hidden meaning.",
+        condenseRatio = 0.55f,
+        condenseInstruction =
+            "Keep the nuance and the reasoning, not only what happened. Where the page implies " +
+                "something without stating it, make it explicit in the retelling.",
+    ),
+    Bullets(
+        "Bullets", "Summarize instantly as skimmable bullet points.",
+        condenseRatio = 0.22f,
+        condenseInstruction =
+            "Write it as a list. One short line per point, in the order the page makes them, " +
+                "each beginning with \"- \". Ignore the instruction above about continuous prose.",
+    ),
+    Analogy(
+        "Analogy", "Explain through a vivid, relatable analogy.",
+        condenseRatio = 0.30f,
+        condenseInstruction =
+            "Open with one concrete everyday comparison that carries the main idea, then retell " +
+                "the page through it. Keep the real names and events.",
+    ),
+    Steps(
+        "Steps", "Break it down step-by-step for exam-ready understanding.",
+        condenseRatio = 0.30f,
+        condenseInstruction =
+            "Write it as numbered steps in the order the page presents them. One step per idea, " +
+                "each a full sentence. Ignore the instruction above about continuous prose.",
+    ),
     ;
+
+    /** Styles whose output is meant to be a list rather than prose. */
+    val isListStyle: Boolean get() = this == Bullets || this == Steps
 
     companion object {
         /** Maps both new names and legacy KnowledgeMode names stored in Room. */

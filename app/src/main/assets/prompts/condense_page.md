@@ -9,6 +9,8 @@ Rules:
 - No headings, no bullets, no commentary. Continuous prose only.
 - Add nothing that is not on the page.
 
-Aim for about {{TARGET_WORDS}} words.
+{{STYLE}}
+
+Aim for about {{TARGET_WORDS}} words. Shorter is better than longer.
 
 {{SOURCE_BLOCK}}
