@@ -3,6 +3,7 @@ package com.snapaie.android.domain.scan
 import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
+import com.snapaie.android.domain.book.Segmenter
 import com.snapaie.android.domain.condense.Abridger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -134,10 +135,11 @@ class SnapPipelineTest {
             },
         )
         // The device from the report: its build has no image encoder, so every photo used
-        // to end in that error. It no longer even asks — the recognised text is enough —
-        // and the page comes back from the author's own sentences instead.
+        // to end in that error. Nothing asks it now — shortening is done on the device, so
+        // a recognised page never reaches a model at all.
         val prose = proseFrom(fake, draft(image = photo.absolutePath))
         assertEquals("a device that cannot read images should not be asked to", 0, fake.imageCalls)
+        assertEquals("a recognised page should not need a model", 0, fake.textCalls)
         assertTrue("no prose produced", prose.isNotBlank())
     }
 
@@ -204,9 +206,9 @@ class SnapPipelineTest {
     @Test
     fun `vision is skipped entirely once disallowed`() = runTest {
         val fake = Fake(visionAllowed = false)
-        proseFrom(fake, draft(image = photo.absolutePath))
+        val prose = proseFrom(fake, draft(image = photo.absolutePath))
         assertTrue("image was sent despite vision being off", fake.imageCalls == 0)
-        assertTrue("text path was not used", fake.textCalls > 0)
+        assertTrue("nothing was produced", prose.isNotBlank())
     }
 
     @Test
@@ -368,25 +370,35 @@ class SnapPipelineTest {
     }
 
     @Test
-    fun `a shorter style asks for fewer words`() = runTest {
-        val asked = mutableMapOf<ExplainStyle, Int>()
-        listOf(ExplainStyle.Concise, ExplainStyle.Auto, ExplainStyle.Detailed).forEach { style ->
-            var words = 0
-            val fake = Fake(onText = { prompt ->
-                words = Regex("""about (\d+) words""").find(prompt)?.groupValues?.get(1)?.toInt() ?: 0
-                flow { emit(GOOD_PROSE) }
-            })
-            proseFrom(fake, draft(style = style))
-            asked[style] = words
+    fun `a shorter style produces a shorter page`() = runTest {
+        // Measured on the page rather than on the prompt. Shortening is deletion done on
+        // the device, so these styles never send a prompt at all — but the chips still
+        // have to mean something, and what a reader notices is the length of the result.
+        // A page long enough for the budgets to bind. On a very short one the opening and
+        // closing alone overshoot every style, so they all produce the same two sentences —
+        // correct behaviour, but it tells you nothing about the chips.
+        // Every sentence carries vocabulary no other sentence has. Near-identical sentences
+        // are correctly rejected as restatements of one another, so a repetitive fixture
+        // runs out of candidates before the budget binds and every style lands in the same
+        // place — which would tell you nothing about the chips.
+        val longPage = (0 until 150).joinToString(" ") { i ->
+            "The kelvar$i met brannoc$i beside the veldish$i and spoke of morrow$i."
         }
-        assertTrue("Concise asked for nothing", (asked[ExplainStyle.Concise] ?: 0) > 0)
+        val lengths = listOf(ExplainStyle.Concise, ExplainStyle.Auto, ExplainStyle.Detailed)
+            .associateWith { style ->
+                Segmenter.countWords(
+                    proseFrom(Fake(installed = false), draft(text = longPage, style = style)),
+                )
+            }
+
+        assertTrue("Concise produced nothing", (lengths[ExplainStyle.Concise] ?: 0) > 0)
         assertTrue(
-            "Concise ${asked[ExplainStyle.Concise]} should be under Auto ${asked[ExplainStyle.Auto]}",
-            asked[ExplainStyle.Concise]!! < asked[ExplainStyle.Auto]!!,
+            "Concise ${lengths[ExplainStyle.Concise]} should be under Auto ${lengths[ExplainStyle.Auto]}",
+            lengths[ExplainStyle.Concise]!! < lengths[ExplainStyle.Auto]!!,
         )
         assertTrue(
-            "Auto ${asked[ExplainStyle.Auto]} should be under Detailed ${asked[ExplainStyle.Detailed]}",
-            asked[ExplainStyle.Auto]!! < asked[ExplainStyle.Detailed]!!,
+            "Auto ${lengths[ExplainStyle.Auto]} should be under Detailed ${lengths[ExplainStyle.Detailed]}",
+            lengths[ExplainStyle.Auto]!! < lengths[ExplainStyle.Detailed]!!,
         )
     }
 

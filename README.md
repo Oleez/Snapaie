@@ -7,8 +7,10 @@ story, in the same order, in the author's own words, just shorter. The sentences
 survive are the ones the author wrote, untouched. Every event survives. Images come with
 it. The table of contents is rebuilt against the new page numbers.
 
-It runs entirely offline. No account, no cloud, no ads, no analytics. The only network
-request the app ever makes is the one-time model download you explicitly approve.
+It runs entirely offline. No account, no cloud, no ads, no analytics. Condensing needs no
+download at all — it is arithmetic on the device, and it is instant. The only network
+request the app ever makes is the optional model download you explicitly approve, which
+adds the styles that have to be written rather than trimmed.
 
 ## What it does
 
@@ -45,9 +47,16 @@ PDF / EPUB / camera
 
 Four ideas hold it together.
 
-**Shortening is deletion, not rewriting.** The model is not asked to produce prose. It is
-given the passage split into numbered sentences and asked which numbers to keep; the text
-is then reassembled from the originals, in the original order. This is the difference
+**Shortening is deletion, not rewriting, and it needs no model.** Nothing is asked to
+produce prose. The passage is split into sentences, ranked, and reassembled from the
+originals in the original order.
+
+Once shortening became deletion, the only question left was which sentences to keep — and
+that is extractive summarisation, a ranking problem solved well before language models.
+`SentenceRanker` answers it with TextRank: sentences vote for each other in proportion to
+shared vocabulary, the votes settle by power iteration, and the winners are taken in the
+author's order until the budget is spent. A hundred selections over a page take 39
+milliseconds. A 2B model answers the same question in minutes, after a 2 GB download. This is the difference
 between an abridged edition and a summary, and it is why a good abridgement still reads
 like the book — nothing is paraphrased into a flatter register, no detail is invented, and
 the voice is the author's because the words are. It is also far cheaper: emitting ten
@@ -89,6 +98,10 @@ extractively rather than failed. A rough paragraph in the right place is recover
 hole in a story is not. Those passages are marked in the reader.
 
 ## The model
+
+Optional. Condensing does not use it. It powers the styles that must be *written* rather
+than trimmed — Bullets, Steps, Analogy — plus chat over a finished book and the writing
+assistant. Everything else works with nothing downloaded.
 
 Gemma 4 E2B, Apache-2.0, in LiteRT-LM's `.litertlm` format:
 

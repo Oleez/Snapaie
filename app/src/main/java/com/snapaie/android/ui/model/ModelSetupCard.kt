@@ -54,7 +54,7 @@ fun ModelSetupCard(
     LiquidGlassSurface {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                if (modelState.hasUpdateAvailable) "An update is ready" else "Turn on offline AI",
+                if (modelState.hasUpdateAvailable) "An update is ready" else "Add bullets, steps and chat",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -62,7 +62,7 @@ fun ModelSetupCard(
                     spec != null && modelState.hasUpdateAvailable ->
                         "A newer version is ready (${formatBytes(spec.expectedBytes)}). Everything keeps working while it downloads."
                     spec != null ->
-                        "One ${formatBytes(spec.expectedBytes)} download, and everything happens on your phone from then on — no internet, no account, nothing sent anywhere. Until then you get instant basic results."
+                        "Shortening already works without this. The extra download adds the styles that have to be written rather than trimmed — bullets, steps and analogies — plus chat and the writing assistant. One ${formatBytes(spec.expectedBytes)} download, and it all stays on your phone."
                     else -> modelStatusMessage(modelState.updateStatus)
                 },
                 style = MaterialTheme.typography.bodySmall,
