@@ -195,7 +195,7 @@ private fun QuickSnapSheet(
                     )
                     if (modelMissing) {
                         Text(
-                            "Instant offline draft — download Gemma in the app for full AI.",
+                            "Instant basic result — turn on offline AI in the app for the full version.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.secondary,
                         )

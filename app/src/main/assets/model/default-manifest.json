@@ -8,7 +8,7 @@
   "runtime": "litert-lm",
   "runtimeVersion": 1,
   "minAppVersion": 1,
-  "releaseNotes": "Gemma 4 E2B, Apache-2.0. Runs entirely on your device.",
+  "releaseNotes": "Works offline once it finishes. Nothing you read or write leaves your phone.",
   "variants": [
     {
       "backend": "gpu",
