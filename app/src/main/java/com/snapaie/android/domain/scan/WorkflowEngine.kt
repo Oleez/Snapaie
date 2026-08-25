@@ -8,6 +8,7 @@ import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.domain.book.Segmenter
 import com.snapaie.android.domain.condense.Abridger
+import com.snapaie.android.domain.condense.ChunkedAbridgement
 import com.snapaie.android.domain.condense.BeatContract
 import com.snapaie.android.domain.condense.BeatRejection
 import com.snapaie.android.domain.condense.BudgetGovernor
@@ -148,50 +149,31 @@ class WorkflowEngine(
 
         val template = runCatching { prompts.read("prompts/abridge.md") }.getOrDefault("")
         if (template.isNotBlank() && sessionManager.isModelInstalled()) {
-            // A list of indices is tiny, so the budget can be small; four tokens a sentence
-            // is generous even when the model keeps every one of them.
-            val budget = (sentences.size * 4 + 32).coerceAtMost(ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
-
-            // Numbering makes the prompt longer than the passage it describes, so the
-            // sentences are taken only while they fit. Overflow is silent — the engine
-            // fails and the caller falls back — so anything that does not fit is dropped
-            // here, where the shortfall is visible, rather than sent and lost.
-            val room = PromptBudget.maxSourceChars(template, budget)
-            val sendable = sentences.takeWhileFitting(room)
-            val numbered = sendable.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" }
-            val prompt = template
-                .replace("{{TARGET_WORDS}}", targetWords.toString())
-                .replace("{{SENTENCES}}", numbered)
-
-            val reply = if (sendable.isEmpty()) StreamAttempt("", null) else streamOnce(prompt, budget, onToken)
-            val keep = Abridger.parseKeepList(reply.text, sentences.size)
-                // The model only ever saw the sentences that fitted; anything beyond that
-                // is kept wholesale, because dropping unseen text would be a silent cut.
-                .plus(sentences.drop(sendable.size).map { it.index })
-            if (keep.isNotEmpty()) {
-                val assembled = Abridger.assemble(sentences, keep)
-                // A model that answers "0" for a twenty-sentence passage has not abridged
-                // it, it has deleted it. Fall through rather than ship that.
+            // The passage is walked a window at a time rather than truncated to fit one.
+            // A page longer than the context used to lose its tail; now the tail is simply
+            // the next run, and the kept indices from every run are joined at the end.
+            val room = PromptBudget.maxSourceChars(template, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+            val walk = ChunkedAbridgement.keepIndices(
+                sentences = sentences,
+                targetWords = targetWords,
+                maxChunkChars = room,
+            ) { numbered, count, runTarget ->
+                val prompt = template
+                    .replace("{{TARGET_WORDS}}", runTarget.toString())
+                    .replace("{{SENTENCES}}", numbered)
+                // A list of indices is tiny, so the budget can be small; four tokens a
+                // sentence is generous even when the model keeps every one of them.
+                val budget = (count * 4 + 32).coerceAtMost(ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+                streamOnce(prompt, budget, onToken).text.takeIf { it.isNotBlank() }
+            }
+            if (walk.keep.isNotEmpty()) {
+                val assembled = Abridger.assemble(sentences, walk.keep)
+                // A reply that deleted the passage instead of shortening it is not shipped.
                 if (Abridger.countWords(assembled) >= targetWords / 3) return assembled
             }
         }
 
         return Abridger.assemble(sentences, Abridger.chooseLocally(sentences, targetWords))
-    }
-
-    /**
-     * The longest run of sentences whose numbered form fits in [chars].
-     *
-     * A prefix rather than a selection: the sentences that do not fit are kept verbatim
-     * instead, and that is only a safe thing to do if the ones the model judged are a
-     * contiguous opening rather than holes punched through the passage.
-     */
-    private fun List<Abridger.Sentence>.takeWhileFitting(chars: Int): List<Abridger.Sentence> {
-        var used = 0
-        return takeWhile { sentence ->
-            used += sentence.text.length + NUMBER_PREFIX_CHARS
-            used <= chars
-        }
     }
 
     /**
@@ -395,9 +377,6 @@ class WorkflowEngine(
         /** A page shorter than this has nothing worth condensing. */
         const val MIN_PROSE_SOURCE_CHARS = 180
         const val MAX_PROSE_SOURCE_CHARS = 9_000
-
-        /** "12. " plus the line break, when a sentence is numbered for the model. */
-        const val NUMBER_PREFIX_CHARS = 6
         const val PROSE_RATIO = 0.34f
 
         /** Words on a typical book page, used when nothing was recognised to measure. */

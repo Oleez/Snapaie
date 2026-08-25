@@ -110,28 +110,23 @@ class BeatCondenser(
         val sentences = Abridger.split(sourceText)
         if (sentences.isEmpty()) return null
 
-        // Numbering makes the prompt longer than the passage, and a beat is up to 9,000
-        // characters against a window that cannot hold that plus a reply. Sending it
-        // anyway does not fail loudly — it fails as a fallback that looks like success.
-        var used = 0
-        val sendable = sentences.takeWhile { sentence ->
-            used += sentence.text.length + NUMBER_PREFIX_CHARS
-            used <= PromptBudget.maxSourceChars(template, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+        // A beat can be larger than the window, so it is walked a run at a time rather
+        // than refused. Nothing needs to carry between runs — no voice to keep, nothing to
+        // re-introduce — because none of it is being rewritten.
+        val room = PromptBudget.maxSourceChars(template, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+        val walk = ChunkedAbridgement.keepIndices(
+            sentences = sentences,
+            targetWords = budgetWords,
+            maxChunkChars = room,
+        ) { numbered, count, runTarget ->
+            val prompt = template
+                .replace("{{TARGET_WORDS}}", runTarget.toString())
+                .replace("{{SENTENCES}}", numbered)
+            generate(prompt, onToken)?.takeIf { count > 0 }
         }
-        if (sendable.size < sentences.size) return null
+        if (walk.keep.isEmpty()) return null
 
-        val prompt = template
-            .replace("{{TARGET_WORDS}}", budgetWords.toString())
-            .replace(
-                "{{SENTENCES}}",
-                sendable.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" },
-            )
-
-        val reply = generate(prompt, onToken) ?: return null
-        val keep = Abridger.parseKeepList(reply, sentences.size)
-        if (keep.isEmpty()) return null
-
-        val assembled = Abridger.assemble(sentences, keep)
+        val assembled = Abridger.assemble(sentences, walk.keep)
         val words = Abridger.countWords(assembled)
         // Too aggressive a cut is worse than a retelling: let the ladder try instead.
         if (words < budgetWords * MIN_ABRIDGED_RATIO) return null
@@ -143,7 +138,8 @@ class BeatCondenser(
             ledger = ledger,
             words = words,
             attempts = 1,
-            usedFallback = false,
+            // A run the model could not answer was chosen locally, and the reader is told.
+            usedFallback = walk.usedFallback,
             wasAbridged = true,
         )
     }
@@ -226,9 +222,6 @@ class BeatCondenser(
         const val MIN_ABRIDGED_RATIO = 0.45f
 
         const val MAX_SOURCE_CHARS = 9_000
-
-        /** "12. " plus the line break, when a sentence is numbered for the model. */
-        const val NUMBER_PREFIX_CHARS = 6
         const val PREVIOUS_TAIL_CHARS = 700
         const val MIN_FALLBACK_WORDS_PER_PARAGRAPH = 12
     }

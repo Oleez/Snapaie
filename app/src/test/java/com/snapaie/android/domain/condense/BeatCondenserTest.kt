@@ -80,25 +80,28 @@ class BeatCondenserTest {
     }
 
     @Test
-    fun `a reply that cuts too deep falls through to the retelling`() = runTest {
-        // One sentence out of eight against a 60-word budget is a gutted beat, not an
-        // abridgement — the ladder should get a turn rather than shipping it.
-        val retold = "Gregor woke transformed, and thought bitterly of the work he detested."
-        val fake = Fake({ prompt -> if (prompt.startsWith("Keep")) "0" else retold })
+    fun `a reply that cuts too deep is replaced, not shipped`() = runTest {
+        // One sentence out of eight against a 60-word budget is a gutted passage, not an
+        // abridgement. The run is re-chosen locally rather than shipped or abandoned.
+        val fake = Fake({ "0" })
         val beat = condenser(fake).condense(source, StoryLedger(), "", budgetWords = 60)
 
-        assertFalse("should not have accepted a gutted abridgement", beat.wasAbridged)
-        assertTrue("the retelling never ran", fake.prompts.any { it.startsWith("Retell") })
+        assertTrue("nothing produced", beat.prose.isNotBlank())
+        assertTrue("the reader is not told the model was overruled", beat.usedFallback)
+        assertTrue("more than one sentence should survive", Abridger.split(beat.prose).size > 1)
     }
 
     @Test
-    fun `an unusable reply still produces a beat`() = runTest {
+    fun `an unusable reply still produces a beat from the author's own words`() = runTest {
         // Nothing may fail a beat: a hole in a story is not recoverable.
         val fake = Fake({ "" })
         val beat = condenser(fake).condense(source, StoryLedger(), "", budgetWords = 40)
 
         assertTrue("a beat must always produce text", beat.prose.isNotBlank())
-        assertTrue("should be marked as fallback", beat.usedFallback)
+        assertTrue("should be reported as fallback", beat.usedFallback)
+        Abridger.split(beat.prose).forEach {
+            assertTrue("'${it.text}' was not in the source verbatim", source.contains(it.text))
+        }
     }
 
     @Test
