@@ -108,27 +108,13 @@ object Abridger {
     /**
      * Chooses sentences without a model.
      *
-     * The floor under the model path, and what runs when there is no model at all. It keeps
-     * the opening of each paragraph and drops from the middle outwards, which preserves the
-     * shape of a scene better than trimming the tail: the first sentence usually carries
-     * who and where, and the last usually carries what changed.
+     * Delegates to [SentenceRanker], which ranks sentences by how much of the passage's
+     * vocabulary they carry rather than by where they happen to sit. The old version kept
+     * the first sentence, the last, and then whatever fitted from the front — which on any
+     * page longer than a few lines meant "the beginning", not "the important parts".
      */
-    fun chooseLocally(sentences: List<Sentence>, targetWords: Int): List<Int> {
-        if (sentences.isEmpty()) return emptyList()
-        val total = sentences.sumOf { it.words }
-        if (total <= targetWords) return sentences.map { it.index }
-
-        val keep = linkedSetOf(sentences.first().index, sentences.last().index)
-        var words = sentences.first().words + if (sentences.size > 1) sentences.last().words else 0
-
-        // Then take sentences from the front, which is where a scene establishes itself.
-        for (sentence in sentences.drop(1).dropLast(1)) {
-            if (words + sentence.words > targetWords) continue
-            keep += sentence.index
-            words += sentence.words
-        }
-        return keep.sorted()
-    }
+    fun chooseLocally(sentences: List<Sentence>, targetWords: Int): List<Int> =
+        SentenceRanker.choose(sentences, targetWords)
 
     /** Words in [text], counted the same way everywhere else in the pipeline does. */
     fun countWords(text: String): Int = WORD.findAll(text).count()
