@@ -91,13 +91,25 @@ class BookExporter(
             emptyMap()
         }
 
-        return BookContentBuilder.build(
+        val body = BookContentBuilder.build(
             chapters = chapters,
             beatsByChapter = beats.groupBy { it.chapterId },
             assetsByBeat = assetsByBeat,
             sourceBeatsByChapter = sourceBeatsByChapter,
             includeImages = request.includeImages,
         )
+        if (body.isEmpty()) return body
+
+        // Say what this is before the story starts. Handing someone an abridgement without
+        // telling them is how a reader ends up thinking a passage is missing from the book.
+        val book = bookDao.getBook(request.bookId)
+        return FrontMatter.build(
+            title = book?.title.orEmpty().ifBlank { "Untitled" },
+            author = book?.author.orEmpty(),
+            sourceWords = book?.sourceWordCount ?: 0,
+            outputWords = beats.sumOf { it.outputWords },
+            chapterCount = chapters.count { chapter -> beats.any { it.chapterId == chapter.id } },
+        ) + body
     }
 
     private suspend fun record(request: ExportRequest, file: File, pageCount: Int): ExportResult {

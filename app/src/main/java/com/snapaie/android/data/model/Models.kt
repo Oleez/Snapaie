@@ -65,6 +65,17 @@ enum class ExplainStyle(
     /** Styles whose output is meant to be a list rather than prose. */
     val isListStyle: Boolean get() = this == Bullets || this == Steps
 
+    /**
+     * Whether this style can be achieved by deleting sentences.
+     *
+     * Shortening a book by cutting sentences keeps the author's own prose, which is what
+     * makes an abridgement still read like the book. But that only works when the target is
+     * the same text, shorter. A list, a set of steps or an explanation-by-analogy is a
+     * different piece of writing, and no amount of deletion produces one — those have to be
+     * written, so they go to the model to be composed rather than trimmed.
+     */
+    val canAbridge: Boolean get() = this == Auto || this == Concise || this == Detailed
+
     companion object {
         /** Maps both new names and legacy KnowledgeMode names stored in Room. */
         fun fromStored(value: String): ExplainStyle = when (value) {

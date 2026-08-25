@@ -3,6 +3,7 @@ package com.snapaie.android.domain.scan
 import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
+import com.snapaie.android.domain.condense.Abridger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -70,7 +71,9 @@ class SnapPipelineTest {
         prompts = { path ->
             // Mirrors the real template's placeholders, so a slot that stops being filled
             // in production fails here too.
-            if (path.endsWith("condense_page.md")) {
+            if (path.endsWith("abridge.md")) {
+                "Keep about {{TARGET_WORDS}} words.\n{{SENTENCES}}"
+            } else if (path.endsWith("condense_page.md")) {
                 "Retell this page shorter.\n{{STYLE}}\nAim for about {{TARGET_WORDS}} words.\n{{SOURCE_BLOCK}}"
             } else {
                 ""
@@ -182,10 +185,10 @@ class SnapPipelineTest {
     }
 
     @Test
-    fun `the chosen style reaches the prompt`() = runTest {
-        // The regression this pins: the style used to stop at the structured breakdown, so
-        // every chip produced an identical page.
-        ExplainStyle.entries.forEach { style ->
+    fun `a composing style sends its instruction to the model`() = runTest {
+        // Bullets, Steps and Analogy are different pieces of writing, not the same text
+        // shortened, so they are composed rather than trimmed and carry an instruction.
+        ExplainStyle.entries.filterNot { it.canAbridge }.forEach { style ->
             var seen = ""
             val fake = Fake(onText = { prompt -> seen = prompt; flow { emit(GOOD_PROSE) } })
             proseFrom(fake, draft(style = style))
@@ -193,6 +196,29 @@ class SnapPipelineTest {
                 "${style.label} never reached the prompt",
                 seen.contains(style.condenseInstruction),
             )
+        }
+    }
+
+    @Test
+    fun `an abridging style keeps the author's own sentences`() = runTest {
+        // The property that makes an abridgement read like the book: every sentence that
+        // survives appears in the source exactly as written.
+        val fake = Fake(onText = { flow { emit("0, 2") } })
+        val prose = proseFrom(fake, draft(style = ExplainStyle.Concise))
+        assertTrue("nothing produced", prose.isNotBlank())
+        Abridger.split(prose).forEach { sentence ->
+            assertTrue("'${sentence.text}' is not in the source verbatim", page.contains(sentence.text))
+        }
+    }
+
+    @Test
+    fun `abridging never invents or reorders`() = runTest {
+        val fake = Fake(onText = { flow { emit("2, 0") } })
+        val prose = proseFrom(fake, draft(style = ExplainStyle.Auto))
+        val first = Abridger.split(prose).first().text
+        val second = Abridger.split(prose).getOrNull(1)?.text
+        if (second != null) {
+            assertTrue("order was not the book's", page.indexOf(first) < page.indexOf(second))
         }
     }
 

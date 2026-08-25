@@ -2,9 +2,10 @@
 
 **A 500-page novel, told again in 150 pages. Or 50. Nothing skipped.**
 
-snapaie condenses whole books on your device. Not a summary — a *retelling*: the same
-story, in the same order, in the book's own voice, just shorter. Every event survives.
-Images come with it. The table of contents is rebuilt against the new page numbers.
+snapaie condenses whole books on your device. Not a summary — an *abridgement*: the same
+story, in the same order, in the author's own words, just shorter. The sentences that
+survive are the ones the author wrote, untouched. Every event survives. Images come with
+it. The table of contents is rebuilt against the new page numbers.
 
 It runs entirely offline. No account, no cloud, no ads, no analytics. The only network
 request the app ever makes is the one-time model download you explicitly approve.
@@ -42,7 +43,17 @@ PDF / EPUB / camera
    PDF / EPUB / Markdown / text
 ```
 
-Three ideas hold it together.
+Four ideas hold it together.
+
+**Shortening is deletion, not rewriting.** The model is not asked to produce prose. It is
+given the passage split into numbered sentences and asked which numbers to keep; the text
+is then reassembled from the originals, in the original order. This is the difference
+between an abridged edition and a summary, and it is why a good abridgement still reads
+like the book — nothing is paraphrased into a flatter register, no detail is invented, and
+the voice is the author's because the words are. It is also far cheaper: emitting ten
+numbers costs a fraction of writing three hundred words, which is most of why the app got
+faster. Styles that are genuinely a different piece of writing — Bullets, Steps, Analogy —
+cannot be reached by deletion and are still composed by the model.
 
 **Beats tile the text exactly.** Every character of the source belongs to precisely one
 beat, and a run is finished only when no beat is left unwritten. "Nothing was skipped"

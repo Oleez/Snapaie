@@ -1,11 +1,13 @@
 package com.snapaie.android.domain.scan
 
+import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.domain.book.Segmenter
+import com.snapaie.android.domain.condense.Abridger
 import com.snapaie.android.domain.condense.BeatContract
 import com.snapaie.android.domain.condense.BeatRejection
 import com.snapaie.android.domain.condense.BudgetGovernor
@@ -125,6 +127,49 @@ class WorkflowEngine(
     }
 
     /**
+     * Shortens by deleting sentences rather than rewriting them.
+     *
+     * This is what an abridged edition actually is, and it is why one still reads like the
+     * book: every surviving sentence is the author's own, untouched. The model only chooses
+     * what goes, so it cannot blunt a line, misattribute dialogue or invent an event.
+     *
+     * It is also the reason this is fast enough to be worth having. Retelling nine hundred
+     * words means generating several hundred; choosing what to keep means generating a
+     * short list of numbers.
+     */
+    private suspend fun abridge(
+        source: String,
+        targetWords: Int,
+        onToken: suspend (String) -> Unit,
+    ): String {
+        val sentences = Abridger.split(source)
+        if (sentences.isEmpty()) return ""
+        if (sentences.sumOf { it.words } <= targetWords) return source.trim()
+
+        val template = runCatching { prompts.read("prompts/abridge.md") }.getOrDefault("")
+        if (template.isNotBlank() && sessionManager.isModelInstalled()) {
+            val numbered = sentences.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" }
+            val prompt = template
+                .replace("{{TARGET_WORDS}}", targetWords.toString())
+                .replace("{{SENTENCES}}", numbered)
+
+            // A list of indices is tiny, so the budget can be small; four tokens a sentence
+            // is generous even when the model keeps every one of them.
+            val budget = (sentences.size * 4 + 32).coerceAtMost(ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+            val reply = streamOnce(prompt, budget, onToken)
+            val keep = Abridger.parseKeepList(reply.text, sentences.size)
+            if (keep.isNotEmpty()) {
+                val assembled = Abridger.assemble(sentences, keep)
+                // A model that answers "0" for a twenty-sentence passage has not abridged
+                // it, it has deleted it. Fall through rather than ship that.
+                if (Abridger.countWords(assembled) >= targetWords / 3) return assembled
+            }
+        }
+
+        return Abridger.assemble(sentences, Abridger.chooseLocally(sentences, targetWords))
+    }
+
+    /**
      * Words to aim for, floored gently.
      *
      * The book pipeline floors a passage at sixty words, which is right for a nine-hundred
@@ -187,7 +232,17 @@ class WorkflowEngine(
             reason = raw.timeoutReason ?: "The photo could not be read clearly."
         }
 
-        // 2. The recognised text, which is available even when the image path is not.
+        // 2. Abridge the recognised text: keep the author's sentences, drop the rest.
+        //    Only for styles that are "the same text, shorter" — a list or an analogy is a
+        //    different piece of writing and cannot be reached by deletion.
+        if (draft.mode.canAbridge && source.length >= MIN_PROSE_SOURCE_CHARS) {
+            val abridged = abridge(source, budget, onToken)
+            if (abridged.isNotBlank() && !BeatContract.isRuntimeNoise(abridged)) {
+                return ProseAttempt(abridged, null)
+            }
+        }
+
+        // 3. Ask for a retelling instead, for pages where deletion alone reads badly.
         if (source.length >= MIN_PROSE_SOURCE_CHARS) {
             val textPrompt = promptFor(template, budget, imageMode = false, style = draft.mode) +
                 System.lineSeparator() + "The page:" + System.lineSeparator() +
