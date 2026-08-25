@@ -27,6 +27,12 @@ import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.components.ScreenHeader
 import com.snapaie.android.data.local.BookBeatEntity
 import com.snapaie.android.data.model.BeatStatus
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import com.snapaie.android.domain.output.BookLayoutEngine
+import com.snapaie.android.domain.output.PageSpec
 import com.snapaie.android.domain.output.BookContentBuilder
 import kotlinx.coroutines.launch
 
@@ -54,6 +60,29 @@ fun BookReaderScreen(
     val chapterTitles = state.chapters.associate { it.id to it.title }
     val beats = state.readableBeats
 
+    // Pages, not a scroll of text. The finished book is a laid-out artefact with real page
+    // breaks, and until now the only way to see it as one was to export a file and open it
+    // somewhere else — which is a strange thing to ask of someone who is already in the app
+    // that made it. Same layout engine as the writer, so what is on screen is what exports.
+    var asPages by remember { mutableStateOf(true) }
+    val measurer = rememberTextMeasurer()
+    val pageSpec = PageSpec.SIX_BY_NINE
+    val textWidth = rememberComposeTextWidth(measurer)
+    val layout = remember(beats, state.chapters, textWidth) {
+        if (beats.isEmpty()) {
+            null
+        } else {
+            BookLayoutEngine(pageSpec, textWidth).layout(
+                BookContentBuilder.build(
+                    chapters = state.chapters,
+                    beatsByChapter = beats.groupBy { it.chapterId },
+                    assetsByBeat = emptyMap(),
+                    includeImages = false,
+                ),
+            )
+        }
+    }
+
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -74,34 +103,66 @@ fun BookReaderScreen(
             )
         }
 
-        var lastChapter = -1L
-        beats.forEach { beat ->
-            if (beat.chapterId != lastChapter) {
-                lastChapter = beat.chapterId
-                item(key = "chapter-${beat.chapterId}") {
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = asPages,
+                    onClick = { asPages = true },
+                    label = { Text("Pages") },
+                )
+                FilterChip(
+                    selected = !asPages,
+                    onClick = { asPages = false },
+                    label = { Text("Text") },
+                )
+            }
+        }
+
+        if (asPages && layout != null) {
+            itemsIndexed(layout.pages, key = { index, _ -> "page-$index" }) { index, page ->
+                Column {
+                    BookPage(page = page, spec = pageSpec, measurer = measurer)
                     Text(
-                        chapterTitles[beat.chapterId].orEmpty(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
+                        "${index + 1} of ${layout.pages.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 18.dp),
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
+        } else {
+            var lastChapter = -1L
+            beats.forEach { beat ->
+                if (beat.chapterId != lastChapter) {
+                    lastChapter = beat.chapterId
+                    item(key = "chapter-${beat.chapterId}") {
+                        Text(
+                            chapterTitles[beat.chapterId].orEmpty(),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
+                        )
+                    }
+                }
 
-            item(key = "beat-${beat.id}") {
-                BeatBlock(
-                    beat = beat,
-                    isComparing = comparing == beat.id,
-                    sourceText = sourceText,
-                    onCompare = {
-                        if (comparing == beat.id) {
-                            comparing = null
-                        } else {
-                            comparing = beat.id
-                            scope.launch { sourceText = viewModel.sourceFor(beat) }
-                        }
-                    },
-                )
+                item(key = "beat-${beat.id}") {
+                    BeatBlock(
+                        beat = beat,
+                        isComparing = comparing == beat.id,
+                        sourceText = sourceText,
+                        onCompare = {
+                            if (comparing == beat.id) {
+                                comparing = null
+                            } else {
+                                comparing = beat.id
+                                scope.launch { sourceText = viewModel.sourceFor(beat) }
+                            }
+                        },
+                    )
+                }
             }
         }
 

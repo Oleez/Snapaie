@@ -69,7 +69,10 @@ fun BookExportScreen(
         item {
             ScreenHeader(
                 title = "Export",
-                subtitle = state.book?.title,
+                // Exporting is for taking the book elsewhere, not for reading it. Saying so
+                // stops it looking like the only way to see the finished pages.
+                subtitle = state.book?.title?.let { "$it · already readable in the app" }
+                    ?: "Already readable in the app",
                 onBack = onBack,
             )
         }
