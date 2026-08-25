@@ -61,6 +61,13 @@ class SnapPipelineTest {
             textCalls++
             return onText(prompt)
         }
+        var keepAliveHeld = 0
+        var maxCallsWhileUnpinned = 0
+        override fun acquireKeepAlive(): java.io.Closeable {
+            keepAliveHeld++
+            return java.io.Closeable { keepAliveHeld-- }
+        }
+
         override fun streamWithImage(prompt: String, imagePath: String, maxOutputTokens: Int): Flow<String> {
             imageCalls++
             return onImage(prompt)
@@ -251,6 +258,25 @@ class SnapPipelineTest {
             val prose = proseFrom(fake, draft())
             assertTrue("with a model installed, $label produced an empty page", prose.isNotBlank())
         }
+    }
+
+    @Test
+    fun `the engine is pinned for the whole snap, not for each call`() = runTest {
+        // A snap is several calls now. Between them nothing is generating, so a
+        // backgrounded app drops the weights and the next run pays a two-gigabyte reload
+        // — which is the difference between a snap that finishes and one that seems not to.
+        var pinnedDuringEveryCall = true
+        lateinit var fake: Fake
+        fake = Fake(onText = {
+            if (fake.keepAliveHeld <= 0) pinnedDuringEveryCall = false
+            flow { emit(GOOD_PROSE) }
+        })
+
+        val long = (0 until 3_000).joinToString(" ") { "Point number $it is worth recording here." }
+        proseFrom(fake, draft(text = long))
+
+        assertTrue("the engine was left droppable between runs", pinnedDuringEveryCall)
+        assertEquals("the pin outlived the snap", 0, fake.keepAliveHeld)
     }
 
     @Test

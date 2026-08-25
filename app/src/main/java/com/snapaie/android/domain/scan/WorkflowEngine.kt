@@ -60,7 +60,11 @@ class WorkflowEngine(
         // retold as prose — doubling the wait for a screen whose top half is the prose. The
         // retelling is what people came for, so it is the call that runs. The breakdown is
         // still available, on demand, from the result screen.
-        val attempt = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+        // Held across the whole snap, not each call. A snap is several calls now, and the
+        // gaps between them are exactly when a backgrounded app drops the weights.
+        val attempt = sessionManager.acquireKeepAlive().use {
+            condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+        }
 
         // Having a model must never leave the reader worse off than not having one.
         //

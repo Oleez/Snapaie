@@ -105,7 +105,7 @@ class ModelSessionManager(
      * between beats and pay the multi-second reload every time. Memory pressure still
      * wins — it has to, or the OS kills the process instead.
      */
-    fun acquireKeepAlive(): Closeable {
+    override fun acquireKeepAlive(): Closeable {
         keepAlive.incrementAndGet()
         idleUnloadJob?.cancel()
         return Closeable {
