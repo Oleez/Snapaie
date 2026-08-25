@@ -177,6 +177,35 @@ class WorkflowEngine(
     }
 
     /**
+     * The text a composing style is given to work from.
+     *
+     * A list or an analogy cannot be produced by deletion, so those styles have to be
+     * written by the model — and the model can only read a window at a time. Truncating to
+     * that window is the wrong answer: it silently throws away everything past the cut, so
+     * a bulleted summary of a long capture would describe only its opening and give no
+     * sign that the rest existed.
+     *
+     * Abridging first is the better one. The passage is walked in as many runs as it takes
+     * and reduced with the author's own sentences until it fits, and only then is the list
+     * composed. The result is one coherent list drawn from the whole capture rather than
+     * several disconnected ones, or a faithful account of its first page.
+     */
+    private suspend fun materialFor(
+        source: String,
+        template: String,
+        budgetTokens: Int,
+        onToken: suspend (String) -> Unit,
+    ): String {
+        val room = PromptBudget.maxSourceChars(template, budgetTokens)
+        if (room <= 0) return source
+        if (source.length <= room) return source
+        // Aim slightly under the window so the reduced text is certain to fit.
+        val targetWords = ((room * FIT_MARGIN) / AVERAGE_WORD_CHARS).toInt().coerceAtLeast(1)
+        val reduced = abridge(source, targetWords, onToken)
+        return if (reduced.isBlank()) source.take(room) else reduced.take(room)
+    }
+
+    /**
      * Words to aim for, floored gently.
      *
      * The book pipeline floors a passage at sixty words, which is right for a nine-hundred
@@ -253,7 +282,7 @@ class WorkflowEngine(
         if (source.length >= MIN_PROSE_SOURCE_CHARS) {
             val textPrompt = promptFor(template, budget, imageMode = false, style = draft.mode) +
                 System.lineSeparator() + "The page:" + System.lineSeparator() +
-                source.take(minOf(MAX_PROSE_SOURCE_CHARS, PromptBudget.maxSourceChars(template, budgetTokens)))
+                materialFor(source, template, budgetTokens, onToken)
             val raw = streamOnce(textPrompt, budgetTokens, onToken)
             val prose = BeatContract.cleanProse(raw.text)
             if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
@@ -376,7 +405,11 @@ class WorkflowEngine(
 
         /** A page shorter than this has nothing worth condensing. */
         const val MIN_PROSE_SOURCE_CHARS = 180
-        const val MAX_PROSE_SOURCE_CHARS = 9_000
+        /** Characters per word including the space, for turning room into a word target. */
+        const val AVERAGE_WORD_CHARS = 6.0
+
+        /** Leaves the reduced text a little clear of the window rather than flush to it. */
+        const val FIT_MARGIN = 0.9
         const val PROSE_RATIO = 0.34f
 
         /** Words on a typical book page, used when nothing was recognised to measure. */

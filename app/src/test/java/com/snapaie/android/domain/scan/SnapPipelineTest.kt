@@ -185,6 +185,24 @@ class SnapPipelineTest {
     }
 
     @Test
+    fun `a long capture reaches a composing style from end to end`() = runTest {
+        // Bullets cannot be produced by deletion, so the page has to be written by the
+        // model — and the model reads a window at a time. Truncating to that window would
+        // bullet-point the opening of a long capture and silently drop the rest, with
+        // nothing on screen to say so. The text is abridged to fit first instead.
+        val long = (0 until 400).joinToString(" ") { "Point number $it is worth recording here." }
+        var lastPrompt = ""
+        val fake = Fake(onText = { prompt -> lastPrompt = prompt; flow { emit("- one and - two") } })
+        proseFrom(fake, draft(text = long, style = ExplainStyle.Bullets))
+
+        assertTrue("the composing prompt never ran", lastPrompt.isNotBlank())
+        assertTrue(
+            "the end of the capture never reached the model",
+            lastPrompt.contains("Point number 399"),
+        )
+    }
+
+    @Test
     fun `a composing style sends its instruction to the model`() = runTest {
         // Bullets, Steps and Analogy are different pieces of writing, not the same text
         // shortened, so they are composed rather than trimmed and carry an instruction.

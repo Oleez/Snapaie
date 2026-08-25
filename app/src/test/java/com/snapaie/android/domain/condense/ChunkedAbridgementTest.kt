@@ -82,6 +82,32 @@ class ChunkedAbridgementTest {
     }
 
     @Test
+    fun `a capture of any size is walked, however many runs that takes`() = runTest {
+        // Not one, two or three: a photographed spread or a pasted chapter can need
+        // dozens of runs, and nothing anywhere may cap how many it is willing to make.
+        val all = sentences(4_000)
+        var runs = 0
+        val offered = mutableSetOf<Int>()
+        val walk = ChunkedAbridgement.keepIndices(all, targetWords = 900, maxChunkChars = 300) { numbered, _, _ ->
+            runs++
+            // The fixture carries its global index in the text, so what the model was
+            // actually shown can be recovered from the prompt it was given.
+            Regex("""Sentence number (\d+)""").findAll(numbered)
+                .forEach { offered += it.groupValues[1].toInt() }
+            "0"
+        }
+
+        assertTrue("expected dozens of runs, got $runs", runs > 50)
+        assertTrue("the last sentences never reached the model", walk.keep.any { it > 3_900 })
+
+        // The promise is that nothing is skipped: every sentence was either put to the
+        // model for judgement or kept outright, and none simply vanished.
+        val accounted = offered + walk.keep
+        val missing = (0 until 4_000).filterNot { it in accounted }
+        assertEquals("sentences were neither judged nor kept: $missing", emptyList<Int>(), missing)
+    }
+
+    @Test
     fun `the budget is shared across the runs rather than spent on each`() = runTest {
         val all = sentences(40)
         val targets = mutableListOf<Int>()

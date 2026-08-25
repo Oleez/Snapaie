@@ -55,6 +55,12 @@ numbers costs a fraction of writing three hundred words, which is most of why th
 faster. Styles that are genuinely a different piece of writing — Bullets, Steps, Analogy —
 cannot be reached by deletion and are still composed by the model.
 
+Because each sentence can be judged almost independently, a passage larger than the model's
+context is simply walked in as many consecutive runs as it takes and the kept indices joined
+at the end — so how long a capture can be has nothing to do with how much the model can read
+at once. Those styles that must be composed are abridged down to fit first, so a bulleted
+page is drawn from the whole capture rather than from whatever happened to come first.
+
 **Beats tile the text exactly.** Every character of the source belongs to precisely one
 beat, and a run is finished only when no beat is left unwritten. "Nothing was skipped"
 stops being a claim about model behaviour and becomes a property of the segmentation,
