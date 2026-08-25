@@ -37,6 +37,9 @@ class VisionGuard(context: Context) {
     }
 
     fun beginVisionCall() {
+        // commit(), not apply(), and lint's advice to the contrary is wrong here: the whole
+        // point is that this flag reaches disk *before* the native call that may kill the
+        // process. An asynchronous write loses the race and the guard never fires.
         prefs.edit().putBoolean(KEY_IN_FLIGHT, true).commit()
     }
 

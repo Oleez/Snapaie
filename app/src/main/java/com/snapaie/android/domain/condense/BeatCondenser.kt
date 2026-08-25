@@ -1,7 +1,8 @@
 package com.snapaie.android.domain.condense
 
 import com.snapaie.android.data.ai.ModelSessionManager
-import com.snapaie.android.domain.scan.PromptLibrary
+import com.snapaie.android.data.ai.TextGenerator
+import com.snapaie.android.domain.scan.PromptSource
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** One beat's finished text and the ledger to carry into the next. */
@@ -13,6 +14,8 @@ data class CondensedBeat(
     /** True when the model never produced acceptable prose and the extractive path ran. */
     val usedFallback: Boolean,
     val lastRejection: BeatRejection = BeatRejection.NONE,
+    /** True when the beat was shortened by cutting sentences rather than rewriting them. */
+    val wasAbridged: Boolean = false,
 )
 
 /**
@@ -26,8 +29,8 @@ data class CondensedBeat(
  * order, and the reader is told which passages it happened to.
  */
 class BeatCondenser(
-    private val sessionManager: ModelSessionManager,
-    private val promptLibrary: PromptLibrary,
+    private val sessionManager: TextGenerator,
+    private val promptLibrary: PromptSource,
 ) {
 
     suspend fun condense(
@@ -37,6 +40,12 @@ class BeatCondenser(
         budgetWords: Int,
         onToken: (String) -> Unit = {},
     ): CondensedBeat {
+        // First, try to shorten the beat by cutting sentences rather than rewriting them.
+        // A retelling is a summary wearing the book's clothes; an abridgement is the book,
+        // shorter. When deletion lands we are done, and it costs one short reply instead
+        // of several hundred generated words.
+        abridge(sourceText, ledger, budgetWords, onToken)?.let { return it }
+
         var attempt = 0
         var lastRejection = BeatRejection.NONE
 
@@ -80,13 +89,62 @@ class BeatCondenser(
         )
     }
 
+    /**
+     * Shortens the beat by choosing which of the author's sentences survive.
+     *
+     * Returns null when deletion cannot do the job — no template, no model, a passage
+     * already inside its budget is returned as-is, and a reply that yields too little text
+     * falls through to the retelling ladder rather than shipping a gutted beat.
+     */
+    private suspend fun abridge(
+        sourceText: String,
+        ledger: StoryLedger,
+        budgetWords: Int,
+        onToken: (String) -> Unit,
+    ): CondensedBeat? {
+        val template = runCatching { promptLibrary.read("prompts/abridge.md") }
+            .getOrDefault("")
+        if (template.isBlank()) return null
+
+        val sentences = Abridger.split(sourceText)
+        if (sentences.isEmpty()) return null
+
+        val prompt = template
+            .replace("{{TARGET_WORDS}}", budgetWords.toString())
+            .replace(
+                "{{SENTENCES}}",
+                sentences.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" },
+            )
+
+        val reply = generate(prompt, onToken) ?: return null
+        val keep = Abridger.parseKeepList(reply, sentences.size)
+        if (keep.isEmpty()) return null
+
+        val assembled = Abridger.assemble(sentences, keep)
+        val words = Abridger.countWords(assembled)
+        // Too aggressive a cut is worse than a retelling: let the ladder try instead.
+        if (words < budgetWords * MIN_ABRIDGED_RATIO) return null
+
+        return CondensedBeat(
+            prose = assembled,
+            // Nothing was rewritten, so there is no new naming or invented detail for the
+            // ledger to guard against downstream.
+            ledger = ledger,
+            words = words,
+            attempts = 1,
+            usedFallback = false,
+            wasAbridged = true,
+        )
+    }
+
     private suspend fun generate(prompt: String, onToken: (String) -> Unit): String? =
         withTimeoutOrNull(BEAT_TIMEOUT_MS) {
             val builder = StringBuilder()
-            sessionManager.stream(prompt).collect { chunk ->
-                builder.append(chunk)
-                onToken(chunk)
-            }
+            sessionManager.stream(prompt, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+                .collect { chunk ->
+                    builder.append(chunk)
+                    onToken(chunk)
+                }
             builder.toString().takeIf { it.isNotBlank() }
         }
 
@@ -97,7 +155,7 @@ class BeatCondenser(
         budgetWords: Int,
         attempt: Int,
     ): String {
-        val template = runCatching { promptLibrary.readAsset("prompts/condense.md") }.getOrDefault("")
+        val template = runCatching { promptLibrary.read("prompts/condense.md") }.getOrDefault("")
         val filled = template
             .replace("{{TARGET_WORDS}}", budgetWords.toString())
             .replace("{{DELIMITER}}", BeatContract.LEDGER_DELIMITER)
@@ -145,6 +203,13 @@ class BeatCondenser(
          * engine must not stall an overnight run indefinitely.
          */
         const val BEAT_TIMEOUT_MS = 6L * 60L * 1000L
+
+        /**
+         * How much of the budget an abridgement must reach to be accepted. Deletion that
+         * lands far under the target has cut the beat to pieces; the retelling ladder is
+         * a better answer than a hollowed-out passage.
+         */
+        const val MIN_ABRIDGED_RATIO = 0.45f
 
         const val MAX_SOURCE_CHARS = 9_000
         const val PREVIOUS_TAIL_CHARS = 700
