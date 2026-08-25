@@ -16,8 +16,15 @@ object ExtractiveCondenser {
         val paragraphs = sourceText.split(Regex("""\n\s*\n""")).map { it.trim() }.filter { it.isNotBlank() }
         if (paragraphs.isEmpty()) return sourceText.trim()
 
-        val budget = budgetWords.coerceAtLeast(BudgetGovernor.MIN_BEAT_WORDS)
-        val perParagraph = (budget / paragraphs.size).coerceAtLeast(MIN_FALLBACK_WORDS_PER_PARAGRAPH)
+        // The floor exists so a beat is never cut to a stub, but it must never exceed the
+        // thing being shortened. Raising a 45-word page's budget to 60 meant every sentence
+        // fitted, so the "shortened" version was the page itself, returned unchanged — the
+        // local path looked like it was working while doing nothing at all.
+        val sourceWords = countWords(sourceText)
+        val floor = minOf(BudgetGovernor.MIN_BEAT_WORDS, sourceWords / 2)
+        val budget = budgetWords.coerceAtLeast(floor).coerceAtMost(sourceWords)
+        val perParagraph = (budget / paragraphs.size)
+            .coerceAtLeast(minOf(MIN_FALLBACK_WORDS_PER_PARAGRAPH, budget))
 
         return paragraphs.joinToString("\n\n") { paragraph ->
             val sentences = splitSentences(paragraph)

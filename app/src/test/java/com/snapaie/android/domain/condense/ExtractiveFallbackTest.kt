@@ -71,4 +71,33 @@ class ExtractiveFallbackTest {
             assertEquals(input.trim(), out.trim().ifEmpty { input.trim() })
         }
     }
+
+    @Test
+    fun `a short page is actually shortened, not handed back`() {
+        // The floor used to be raised to sixty words whatever the page was, so anything
+        // shorter than that fitted inside its own budget and came back untouched. The
+        // local path reported success while returning the page it was given.
+        val page = "The chief sat high above his clerks and spoke down to them all. " +
+            "Gregor had thought of giving notice for many years already. " +
+            "The journey was a torment and the food was always bad. " +
+            "He would have quit long ago if not for his parents."
+
+        val shortened = ExtractiveCondenser.shorten(page, budgetWords = 18)
+
+        assertTrue("nothing was produced", shortened.isNotBlank())
+        assertTrue(
+            "the page came back its original length (${shortened.length} of ${page.length})",
+            shortened.length < page.length,
+        )
+        assertTrue("the opening must survive", shortened.startsWith("The chief sat high"))
+    }
+
+    @Test
+    fun `shortening never returns more than it was given`() {
+        listOf(1, 5, 18, 60, 500).forEach { budget ->
+            val page = "One. Two things happened. Three more followed after that. Four is the last."
+            val out = ExtractiveCondenser.shorten(page, budget)
+            assertTrue("budget $budget grew the page", out.length <= page.length)
+        }
+    }
 }

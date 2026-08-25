@@ -61,7 +61,17 @@ class WorkflowEngine(
         // retelling is what people came for, so it is the call that runs. The breakdown is
         // still available, on demand, from the result screen.
         val attempt = condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
-        val prose = attempt.prose
+
+        // Having a model must never leave the reader worse off than not having one.
+        //
+        // This was the bug: with nothing installed the page was shortened locally and
+        // always came back, while with a model installed a failed or rejected reply
+        // produced an empty panel instead. Downloading two gigabytes made the feature stop
+        // working — and it stopped for exactly the pages where the model struggled, which
+        // are the ones that needed the fallback most. The local shortening is free and
+        // always available; there was never a reason to withhold it here.
+        val prose = attempt.prose.ifBlank { localShorten(draft) }
+        val fromModel = attempt.prose.isNotBlank()
 
         emit(
             WorkflowEvent.Phase(
@@ -70,7 +80,15 @@ class WorkflowEngine(
                     // Say what happened. A blank panel with no explanation was the whole
                     // problem: it looked identical whether the model had failed, the page
                     // was too short, or the reply had been rejected.
-                    if (prose.isNotBlank()) "Shorter version ready." else attempt.reason.orEmpty(),
+                    when {
+                        fromModel -> "Shorter version ready."
+                        // Say which one they are reading. A local shortening that claims
+                        // to be the model's work is the same dishonesty as a blank panel.
+                        prose.isNotBlank() ->
+                            attempt.reason?.let { "$it Shortened on the spot instead." }
+                                ?: "Shortened on the spot."
+                        else -> attempt.reason.orEmpty()
+                    },
                     isComplete = true,
                 ),
             ),
@@ -83,7 +101,7 @@ class WorkflowEngine(
         } else {
             parser.heuristicOnly(draft)
         }
-        emit(WorkflowEvent.Result(finalize(draft, result), fromModel = prose.isNotBlank()))
+        emit(WorkflowEvent.Result(finalize(draft, result), fromModel = fromModel))
     }
 
     /**

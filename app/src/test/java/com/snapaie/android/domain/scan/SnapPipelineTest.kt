@@ -229,6 +229,31 @@ class SnapPipelineTest {
     }
 
     @Test
+    fun `installing a model never leaves a page worse off than having none`() = runTest {
+        // The bug a user found by watching it happen: with nothing installed the page was
+        // shortened locally and always came back, and after downloading two gigabytes the
+        // panel went empty. Whatever the model does, having one cannot be worse than not.
+        val withoutModel = proseFrom(Fake(installed = false), draft())
+        assertTrue("the baseline itself produced nothing", withoutModel.isNotBlank())
+
+        val brokenModels = mapOf(
+            "silence" to Fake(onText = { flow { emit("") } }, onImage = { flow { emit("") } }),
+            "a dead engine" to Fake(
+                onText = { flow { error("engine gone") } },
+                onImage = { flow { error("engine gone") } },
+            ),
+            "runtime noise" to Fake(
+                onText = { flow { emit("LiteRT-LM stream error: Status Code: 3.") } },
+                onImage = { flow { emit("LiteRT-LM stream error: Status Code: 3.") } },
+            ),
+        )
+        brokenModels.forEach { (label, fake) ->
+            val prose = proseFrom(fake, draft())
+            assertTrue("with a model installed, $label produced an empty page", prose.isNotBlank())
+        }
+    }
+
+    @Test
     fun `a slow model cannot make a snap run without end`() = runTest {
         // Every call used to have its own four-minute ceiling with no budget for the snap
         // as a whole, so a photo could take a vision pass, then an abridgement of however
