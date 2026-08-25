@@ -439,10 +439,21 @@ class ModelSessionManager(
         const val FORCED_UNLOAD_RETRIES = 10
 
         /**
-         * Context window the engine is built with. Every prompt this app sends fits well
-         * inside it, and a smaller window means faster prefill and less resident memory.
+         * Context window the engine is built with, counting the prompt and the reply.
+         *
+         * This was 2,048, with a comment claiming every prompt fitted well inside it. It
+         * did not. The pipeline sends up to 9,000 characters of source — about 2,250
+         * tokens on its own — plus a template, a story ledger and the tail of the previous
+         * passage, and then asks for up to 560 tokens back. A full-size passage therefore
+         * needed roughly 3,000 tokens against a 2,048 window, so it overflowed every time.
+         *
+         * Overflow does not announce itself. The engine fails or truncates, the result is
+         * rejected as unusable, and the pipeline quietly falls back to its local heuristic
+         * — which is why the app appeared to work while never once producing a passage the
+         * model had actually written. [PromptBudget] now derives the source cap from this
+         * number so the two cannot drift apart again.
          */
-        const val MAX_CONTEXT_TOKENS = 2_048
+        const val MAX_CONTEXT_TOKENS = 4_096
 
         /** Room for an encoded page image alongside the prompt and the reply. */
         const val VISION_CONTEXT_TOKENS = 4_096

@@ -2,6 +2,7 @@ package com.snapaie.android.domain.condense
 
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.ai.TextGenerator
+import com.snapaie.android.domain.scan.PromptBudget
 import com.snapaie.android.domain.scan.PromptSource
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -109,11 +110,21 @@ class BeatCondenser(
         val sentences = Abridger.split(sourceText)
         if (sentences.isEmpty()) return null
 
+        // Numbering makes the prompt longer than the passage, and a beat is up to 9,000
+        // characters against a window that cannot hold that plus a reply. Sending it
+        // anyway does not fail loudly — it fails as a fallback that looks like success.
+        var used = 0
+        val sendable = sentences.takeWhile { sentence ->
+            used += sentence.text.length + NUMBER_PREFIX_CHARS
+            used <= PromptBudget.maxSourceChars(template, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+        }
+        if (sendable.size < sentences.size) return null
+
         val prompt = template
             .replace("{{TARGET_WORDS}}", budgetWords.toString())
             .replace(
                 "{{SENTENCES}}",
-                sentences.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" },
+                sendable.joinToString(System.lineSeparator()) { "${it.index}. ${it.text}" },
             )
 
         val reply = generate(prompt, onToken) ?: return null
@@ -167,7 +178,10 @@ class BeatCondenser(
                 "{{PREVIOUS_TAIL}}",
                 previousTail.takeLast(PREVIOUS_TAIL_CHARS).ifBlank { "(nothing yet)" },
             )
-            .replace("{{SOURCE}}", sourceText.take(MAX_SOURCE_CHARS))
+            .replace(
+                "{{SOURCE}}",
+                sourceText.take(minOf(MAX_SOURCE_CHARS, PromptBudget.maxSourceChars(template, budgetWords * 2))),
+            )
 
         if (attempt <= 1) return filled
         return buildString {
@@ -212,6 +226,9 @@ class BeatCondenser(
         const val MIN_ABRIDGED_RATIO = 0.45f
 
         const val MAX_SOURCE_CHARS = 9_000
+
+        /** "12. " plus the line break, when a sentence is numbered for the model. */
+        const val NUMBER_PREFIX_CHARS = 6
         const val PREVIOUS_TAIL_CHARS = 700
         const val MIN_FALLBACK_WORDS_PER_PARAGRAPH = 12
     }
