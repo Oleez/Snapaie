@@ -1,0 +1,27 @@
+{
+  "name": "snapaie-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloud Read for snapaie: transcription and condensation the phone cannot do offline.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsc -w -p tsconfig.json"
+  },
+  "dependencies": {
+    "@google/genai": "^2.19.0",
+    "express": "^4.21.2",
+    "google-auth-library": "^9.15.0",
+    "jose": "^5.9.6",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.17.10",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2"
+  }
+}
