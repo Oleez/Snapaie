@@ -1,28 +1,12 @@
 {
-  "modelId": "gemma-4-e2b-it",
+  "modelId": "qwen2.5-1.5b-instruct",
   "version": "1.0.0",
-  "filename": "gemma-4-E2B-it.litertlm",
-  "downloadUrl": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
-  "sizeBytes": 2588147712,
-  "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c",
+  "filename": "Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm",
+  "downloadUrl": "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm?download=true",
+  "sizeBytes": 1597931520,
+  "sha256": "faa60663b333290c1496c499828b21d3e3254a788cacd8cce917ce0f761a2dc9",
   "runtime": "litert-lm",
   "runtimeVersion": 1,
   "minAppVersion": 1,
-  "releaseNotes": "Works offline once it finishes. Nothing you read or write leaves your phone.",
-  "variants": [
-    {
-      "backend": "gpu",
-      "filename": "gemma-4-E2B-it-gpu.litertlm",
-      "downloadUrl": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-gpu.litertlm?download=true",
-      "sizeBytes": 2008432640,
-      "sha256": "a53a59001894c58e6bdb5b9b227709f91a2e3e556baa7d85acf9c55402ba5cf5"
-    },
-    {
-      "backend": "cpu",
-      "filename": "gemma-4-E2B-it.litertlm",
-      "downloadUrl": "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
-      "sizeBytes": 2588147712,
-      "sha256": "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
-    }
-  ]
+  "releaseNotes": "Works offline once it finishes. Nothing you read or write leaves your phone."
 }

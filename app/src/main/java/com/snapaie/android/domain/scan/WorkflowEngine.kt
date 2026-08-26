@@ -398,35 +398,6 @@ class WorkflowEngine(
         return BeatContract.evaluate(prose, source, budget) == BeatRejection.NONE
     }
 
-    private suspend fun streamVision(
-        prompt: String,
-        imagePath: String,
-        maxOutputTokens: Int,
-        deadline: Deadline,
-        onToken: suspend (String) -> Unit,
-    ): StreamAttempt {
-        val accumulated = StringBuilder()
-        var timeoutReason: String? = null
-        val allowed = deadline.capFor(VISION_TIMEOUT_MS)
-        if (allowed <= 0L) return StreamAttempt("", "There was not enough time left to read the photo.")
-        try {
-            withTimeout(allowed) {
-                sessionManager.streamWithImage(prompt, imagePath, maxOutputTokens).collect { token ->
-                    accumulated.append(token)
-                    if (token.isNotBlank()) onToken(token)
-                }
-            }
-        } catch (_: TimeoutCancellationException) {
-            timeoutReason = "Stopped early."
-        } catch (error: IllegalStateException) {
-            // Engine could not serve this request — most often because the build in use
-            // cannot read images. Reported, so the caller can fall through to the text
-            // path instead of returning an unexplained blank.
-            timeoutReason = "Reading the photo is not supported on this device."
-        }
-        return StreamAttempt(accumulated.toString(), timeoutReason)
-    }
-
     private data class StreamAttempt(val text: String, val timeoutReason: String?)
 
     /**
@@ -494,9 +465,6 @@ class WorkflowEngine(
 
     private companion object {
         const val INFERENCE_TIMEOUT_MS = 60_000L
-
-        /** Reading a photo is the slowest thing the model does, so it gets more room. */
-        const val VISION_TIMEOUT_MS = 120_000L
 
         /**
          * The whole snap's allowance in the model. Past this the rest is done locally.

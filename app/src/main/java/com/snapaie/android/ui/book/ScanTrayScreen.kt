@@ -2,6 +2,7 @@ package com.snapaie.android.ui.book
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -45,9 +46,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.components.ScreenHeader
 import com.snapaie.android.data.model.BookSourceKind
+import com.snapaie.android.data.scan.DocumentScanner
 import com.snapaie.android.domain.scan.ScanFilter
 import com.snapaie.android.ui.findActivity
 import com.snapaie.android.ui.notifications.LocalSnapToast
@@ -72,6 +75,15 @@ fun ScanTrayScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val toast = LocalSnapToast.current
     val scope = rememberCoroutineScope()
+    val scanner = remember { DocumentScanner(context) }
+
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+            ?.pages.orEmpty().map { it.imageUri }
+        if (pages.isNotEmpty()) viewModel.addPages(pages)
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetMultipleContents(),
@@ -105,11 +117,22 @@ fun ScanTrayScreen(
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // The camera screen, always. There used to be a Play Services scanner here
-                // with edge detection and auto-capture, reached when it happened to be
-                // installed and silently skipped when it was not — two capture paths, one
-                // of which most testing never saw.
-                Button(onClick = onFallbackCamera) { Text("Add pages") }
+                Button(
+                    onClick = {
+                        val activity = context.findActivity()
+                        if (activity == null || !scanner.isAvailable()) {
+                            // No Play Services: the plain camera screen still captures,
+                            // just without edge detection.
+                            onFallbackCamera()
+                            return@Button
+                        }
+                        scope.launch {
+                            runCatching { scanner.intentSender(activity) }
+                                .onSuccess { scanLauncher.launch(IntentSenderRequest.Builder(it).build()) }
+                                .onFailure { onFallbackCamera() }
+                        }
+                    },
+                ) { Text("Add pages") }
                 OutlinedButton(onClick = { galleryLauncher.launch("image/*") }) { Text("From gallery") }
                 if (state.pages.isNotEmpty()) {
                     TextButton(onClick = viewModel::clear) { Text("Clear") }

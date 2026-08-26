@@ -23,11 +23,10 @@ import com.snapaie.android.data.ai.download.ModelDownloader
 import com.snapaie.android.data.ai.model.ModelManifestRepository
 import com.snapaie.android.data.ai.model.ModelRegistry
 import com.snapaie.android.data.ai.ModelSessionManager
-import com.snapaie.android.data.ai.VisionGuard
 import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.MIGRATION_2_3
 import com.snapaie.android.data.local.SnapAieDatabase
-import com.snapaie.android.data.ocr.PageReader
+import com.snapaie.android.data.ocr.OcrProcessor
 import com.snapaie.android.data.ocr.PageTextExtractor
 import com.snapaie.android.data.pdf.PdfTextExtractor
 import com.snapaie.android.data.preferences.AppPreferencesRepository
@@ -62,6 +61,7 @@ class SnapAieApplication : Application() {
 
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val prefs = AppPreferencesRepository(applicationContext)
+        val ocrProcessor = OcrProcessor(applicationContext)
         val database = Room.databaseBuilder(
             applicationContext,
             SnapAieDatabase::class.java,
@@ -87,14 +87,10 @@ class SnapAieApplication : Application() {
             downloadController = downloadController,
             scope = appScope,
         )
-        // Read before anything can start a new one: a flag still raised from last time
-        // means the process died inside a vision call.
-        val visionGuard = VisionGuard(applicationContext).also { it.recordStartup() }
         val sessionManager = ModelSessionManager(
             context = applicationContext,
             modelRepository = modelRepository,
             scope = appScope,
-            visionGuard = visionGuard,
         )
 
         val billingBridge = BillingBridge(
@@ -105,13 +101,13 @@ class SnapAieApplication : Application() {
 
         val bookStorage = BookStorage(applicationContext)
         val promptLibrary = PromptLibrary(applicationContext)
-        val pageReader = PageReader(applicationContext, sessionManager, promptLibrary)
+
         val bookRepository = BookRepository(
             storage = bookStorage,
             bookDao = database.bookDao(),
             condenseDao = database.condenseDao(),
             assetDao = database.bookAssetDao(),
-            pdfIngestor = PdfIngestor(applicationContext, pageReader),
+            pdfIngestor = PdfIngestor(applicationContext, ocrProcessor),
             epubIngestor = EpubIngestor(),
         )
         val condensePipeline = CondensePipeline(
@@ -136,8 +132,8 @@ class SnapAieApplication : Application() {
             modelRegistry = modelRegistry,
             modelDownloadController = downloadController,
             sessionManager = sessionManager,
-            pdfTextExtractor = PdfTextExtractor(applicationContext, pageReader),
-            pageTextExtractor = PageTextExtractor(applicationContext, pageReader),
+            pdfTextExtractor = PdfTextExtractor(applicationContext, ocrProcessor),
+            pageTextExtractor = PageTextExtractor(applicationContext, ocrProcessor),
             bookStorage = bookStorage,
             bookRepository = bookRepository,
             condensePipeline = condensePipeline,

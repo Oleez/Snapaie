@@ -195,6 +195,11 @@ class ModelRepository(
     }
 
     private companion object {
-        const val MIN_COMFORTABLE_RAM_GB = 4
+        /**
+         * Set for a 2.4 GB model. The offline model is 1.6 GB and text-only now, so it
+         * fits comfortably where the old one did not — warning a 3 GB phone off it would
+         * be warning it away from something that works.
+         */
+        const val MIN_COMFORTABLE_RAM_GB = 3
     }
 }

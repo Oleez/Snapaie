@@ -48,14 +48,18 @@ class BundledManifestTest {
     }
 
     @Test
-    fun `each backend resolves to a different artifact`() {
-        val gpu = ModelManifestValidator.validate(manifest(), APP_VERSION_CODE, ModelBackend.GPU)
-        val cpu = ModelManifestValidator.validate(manifest(), APP_VERSION_CODE, ModelBackend.CPU)
-        val gpuSpec = (gpu as ModelManifestValidation.Accepted).spec
-        val cpuSpec = (cpu as ModelManifestValidation.Accepted).spec
-        assertEquals(ModelBackend.GPU, gpuSpec.backend)
-        assertEquals(ModelBackend.CPU, cpuSpec.backend)
-        assertTrue(gpuSpec.fileName != cpuSpec.fileName)
+    fun `every backend resolves to a usable artifact`() {
+        // The bundled model ships one build, not a GPU/CPU pair. Both backends therefore
+        // resolve to the same file — which is fine, and the point of the assertion is that
+        // neither comes back empty. A GPU device loading a CPU artifact works; a device
+        // resolving to nothing has no AI at all, which is the failure worth catching.
+        ModelBackend.entries.forEach { backend ->
+            val result = ModelManifestValidator.validate(manifest(), APP_VERSION_CODE, backend)
+            val spec = (result as ModelManifestValidation.Accepted).spec
+            assertTrue("$backend resolved to no file", spec.fileName.isNotBlank())
+            assertTrue("$backend resolved to no download", spec.downloadUrl.startsWith("https://"))
+            assertEquals("$backend was not honoured", backend, spec.backend)
+        }
     }
 
     private companion object {

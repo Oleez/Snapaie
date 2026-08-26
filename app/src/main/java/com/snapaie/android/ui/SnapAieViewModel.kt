@@ -10,6 +10,7 @@ import com.snapaie.android.data.local.decodeResultJson
 import com.snapaie.android.data.local.encodeResultJson
 import com.snapaie.android.data.local.knowledgeScanEntity
 import com.snapaie.android.data.local.toDomain
+import com.snapaie.android.data.ocr.TextSource
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
@@ -44,6 +45,13 @@ data class ScanUiState(
     val isRunning: Boolean = false,
     val isOcrRunning: Boolean = false,
     val ocrError: String? = null,
+    /**
+     * The recogniser read the page but not well enough to condense.
+     *
+     * On a photographed page that almost always means handwriting, which a text recogniser
+     * cannot read at all — not badly, at all. It is an offer to make, not an error to show.
+     */
+    val needsCloudRead: Boolean = false,
 )
 
 class SnapAieViewModel(
@@ -150,9 +158,9 @@ class SnapAieViewModel(
 
     fun extractText(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isOcrRunning = true, ocrError = null) }
-            // Falls back to the model reading the photo when the recogniser struggles,
-            // which is most of the difference between a usable page and a garbled one.
+            _uiState.update { it.copy(isOcrRunning = true, ocrError = null, needsCloudRead = false) }
+            // The photo is kept whatever the recogniser makes of it: a page it could not
+            // read is exactly the page worth sending somewhere that can.
             val imagePath = runCatching { container.pageTextExtractor.localImagePath(uri) }.getOrNull()
             runCatching { container.pageTextExtractor.extract(uri) }
                 .onSuccess { page ->
@@ -163,12 +171,15 @@ class SnapAieViewModel(
                                 pageText = page.text,
                                 imagePath = imagePath.orEmpty(),
                             ),
-                            // With the photo in hand the model can still read a page the
-                            // recogniser could not, so blank text is no longer a dead end.
-                            ocrError = if (page.text.isBlank() && imagePath == null) {
-                                "That photo could not be read. Try a straighter, better-lit one."
-                            } else {
-                                null
+                            needsCloudRead = page.source == TextSource.NEEDS_CLOUD,
+                            // Say which of the two happened. "Nothing on this page" and
+                            // "text this reader cannot handle" look identical on screen and
+                            // have completely different answers.
+                            ocrError = when {
+                                page.source == TextSource.NEEDS_CLOUD -> null
+                                page.text.isBlank() ->
+                                    "No text found on that photo. Try a straighter, better-lit one."
+                                else -> null
                             },
                         )
                     }

@@ -21,6 +21,7 @@ class PlainLanguageTest {
     /** Words that must never reach the screen, with what to say instead. */
     private val banned = mapOf(
         "gemma" to "name the feature, not the weights",
+        "qwen" to "name the feature, not the weights",
         "litert" to "an engine name means nothing to a reader",
         "apache" to "the licence is not the user's decision to make",
         "e2b" to "a model variant is not user-facing",

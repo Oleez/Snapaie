@@ -35,7 +35,7 @@ assistant.
 
 ```
 PDF / EPUB / camera
-        ↓  text layer where there is one, the model reads the picture where there is not
+        ↓  text layer where there is one, ML Kit reads the photograph where there is not
    one flat text buffer
         ↓  chapters from the outline, or from heading heuristics
    chapters → beats (~900 source words each)
@@ -102,9 +102,10 @@ hole in a story is not. Those passages are marked in the reader.
 
 ## The model
 
-Everything that reads or writes goes through it. It reads the page — the only thing here
-that can, now that the text recogniser is gone — decides what to cut, and writes the styles
-that have to be composed.
+Text-only, and deliberately so. It decides what to cut from every page and writes the
+styles that must be composed. It does **not** read images: ML Kit does that natively in
+milliseconds at a fraction of the size, and a model that never has to see is a third
+smaller — which is the difference between running on most phones and running on few.
 
 A text recogniser matches printed shapes. Hand it a page of handwriting and it returns a
 few stray characters or nothing at all — which is why a letter, a lab notebook, lecture
@@ -121,15 +122,23 @@ Beyond reading, it chooses what to cut from every page, writes the styles that m
 book and the writing assistant. Without it the app still shortens pages; it just does the
 choosing itself.
 
-Gemma 4 E2B, Apache-2.0, in LiteRT-LM's `.litertlm` format:
+Qwen 2.5 1.5B Instruct, Apache-2.0, in LiteRT-LM's `.litertlm` format — one build, 1.6 GB,
+`Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm`, with a 4096-token window that
+matches what the app asks for.
 
-| variant | size | when |
-|---|---|---|
-| `gemma-4-E2B-it-gpu.litertlm` | 1.9 GB | device has an OpenCL driver |
-| `gemma-4-E2B-it.litertlm` | 2.4 GB | everything else |
+From <https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct> — not gated, no token
+needed. Weights are never committed and never bundled in the APK.
 
-From <https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm> — not gated, no
-token needed. Weights are never committed and never bundled in the APK.
+It replaced Gemma 4 E2B (2.0–2.4 GB, multimodal). That model wanted more memory than most
+phones have, and it was carrying an image encoder to do a job ML Kit does natively in
+milliseconds. Dropping vision made a third of the size unnecessary and made an entire class
+of native crash — `Vision executor should not be null`, and the SIGSEGVs around it —
+impossible rather than merely handled.
+
+Gemma 3 1B would be smaller still at 584 MB and better on 4 GB phones, but its repository is
+gated: downloading it needs a logged-in account that has accepted the licence, so the app
+cannot fetch it directly. It becomes an option the day those weights are mirrored somewhere
+we control.
 
 Delivery is described in `docs/model-delivery.md`. In short: a remote `latest.json`
 (`snapaie.model.manifest.url` in `gradle.properties`) is the only channel model facts reach
@@ -148,12 +157,10 @@ proven model exists to fall back to.
 - **A full-length book takes hours.** The UI says so before you start, runs the job as
   resumable foreground work, pauses when the device gets too hot, and lets you read what is
   finished. It does not make it fast.
-- **A photographed page needs the model.** There is no text recogniser any more. A
-  recogniser reads printed glyphs quickly and cannot read handwriting at all, and it failed
-  by returning fragments rather than nothing — which is how a confident condensation of
-  garbage reached the screen. One reader that can read anything beats two and a rule for
-  choosing between them. The cost is that photographs do nothing until the model is
-  downloaded; PDFs and EPUBs with a text layer are unaffected.
+- **Handwriting needs the cloud.** ML Kit reads printed pages in milliseconds and cannot
+  read handwriting at all — not badly, at all. When it comes back with fragments the app
+  says so and offers Cloud Read rather than condensing the fragments, which is what used to
+  happen. Printed pages, PDFs and EPUBs are unaffected and free.
 - **PDF export uses the standard PDF fonts**, which cover Western European text. Non-Latin
   scripts are not yet supported in PDF output; EPUB and Markdown have no such limit.
 
@@ -174,4 +181,6 @@ for four ABIs; release builds keep only `arm64-v8a` and `armeabi-v7a`.
 Sources:
 
 - LiteRT-LM Android guide: https://developers.google.com/edge/litert-lm/android
+- ML Kit text recognition: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
+- ML Kit document scanner: https://developers.google.com/ml-kit/vision/doc-scanner
 - LiteRT-LM repository: https://github.com/google-ai-edge/LiteRT-LM

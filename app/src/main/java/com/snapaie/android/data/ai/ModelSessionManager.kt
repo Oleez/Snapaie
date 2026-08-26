@@ -3,7 +3,6 @@ package com.snapaie.android.data.ai
 import android.app.ActivityManager
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -59,11 +58,20 @@ class ModelSessionManager(
     private val context: Context,
     private val modelRepository: ModelRepository,
     private val scope: CoroutineScope,
-    private val visionGuard: VisionGuard = VisionGuard(context),
 ) : TextGenerator {
 
-    /** False once reading images has proven fatal on this device. */
-    override val visionAllowed: Boolean get() = visionGuard.isVisionAllowed
+    /**
+     * Always false: the offline model is text-only and has no image encoder.
+     *
+     * Reading a page is ML Kit's job now. A recogniser matches printed glyphs in
+     * milliseconds at a fraction of the size, which is what a printed page actually needs —
+     * and a model that never has to see is a third the size, so it fits on the phones most
+     * people own. Handwriting, which a recogniser genuinely cannot do, goes to the cloud.
+     *
+     * This is not a preference. Asking a text-only bundle for a vision backend makes
+     * `Engine.initialize()` fail on every backend and takes all AI down with it.
+     */
+    override val visionAllowed: Boolean get() = false
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedKey: String? = null
@@ -143,14 +151,15 @@ class ModelSessionManager(
     /** Convenience for callers that do not care about the budget. */
     fun stream(prompt: String): Flow<String> = stream(prompt, null, DEFAULT_MAX_OUTPUT_TOKENS)
 
+    /**
+     * [imagePath] is accepted and ignored: the model is text-only, and a caller handing one
+     * over has made a mistake worth failing quietly rather than crashing the engine over.
+     */
     private fun stream(
         prompt: String,
-        imagePath: String?,
+        @Suppress("UNUSED_PARAMETER") imagePath: String?,
         maxOutputTokens: Int,
     ): Flow<String> = channelFlow {
-        // Resolved before the lock so the finally block can lower the in-flight flag even
-        // if the engine never loads.
-        val withImage = imagePath != null && visionGuard.isVisionAllowed
         mutex.withLock {
             idleUnloadJob?.cancel()
             streaming = true
@@ -173,24 +182,14 @@ class ModelSessionManager(
                         maxOutputToken = maxOutputTokens,
                     ),
                 ).use { conversation ->
-                    // Declared outside the try so the finally can lower the flag.
-                    val request = if (withImage) {
-                        Contents.of(Content.ImageFile(imagePath!!), Content.Text(prompt))
-                    } else {
-                        Contents.of(prompt)
-                    }
-                    // Flag raised before the handover and lowered after, so a process that
-                    // never comes back is detectable at the next launch.
-                    if (withImage) visionGuard.beginVisionCall()
-                    conversation.sendMessageAsync(request)
+                    conversation.sendMessageAsync(Contents.of(prompt))
                         // Never write the failure into the reply. It used to be sent down the
                         // same channel as the text, so the runtime error string was pasted onto
                         // the front of the retelling and shipped to the reader as part of it.
-                        .catch { error -> noteFailure(error, withImage) }
+                        .catch { error -> noteFailure(error) }
                         .collect { message -> send(message.toString()) }
                 }
             } finally {
-                if (withImage) visionGuard.endVisionCall()
                 streaming = false
                 activeGeneration = null
                 scheduleIdleUnload()
@@ -284,19 +283,8 @@ class ModelSessionManager(
         }
     }
 
-    /**
-     * Records why a generation stopped.
-     *
-     * "Vision executor should not be null" is a property of this build, not bad luck: the
-     * engine was created without an image encoder and no amount of retrying conjures one.
-     * Rather than fail every photographed page the same way forever, images are switched
-     * off here and the text path is used from then on.
-     */
-    private fun noteFailure(error: Throwable, wasVisionCall: Boolean) {
-        val message = error.message.orEmpty()
-        if (wasVisionCall && VISION_UNAVAILABLE_MARKERS.any { message.contains(it, ignoreCase = true) }) {
-            visionGuard.disableVision()
-        }
+    /** Records why a generation stopped, for the UI to show. */
+    private fun noteFailure(error: Throwable) {
         _state.value = ModelSessionState.Error(friendly(error))
     }
 
@@ -334,26 +322,14 @@ class ModelSessionManager(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = backend.toRuntimeBackend(),
-                            // Vision backend deliberately left at its default. Pinning it
-                            // to the text backend meant a build whose image encoder cannot
-                            // run there failed to initialise at all — taking every feature
-                            // down, not just the ones that read pictures.
-                            // Both of these were wrong and both crash natively rather
-                            // than throwing. maxNumImages was never set, so the engine was
-                            // built with no image buffers and then handed a picture. And
-                            // 2K of context cannot hold an encoded image plus a prompt plus
-                            // a reply — a vision encoder emits hundreds of tokens per tile,
-                            // and overflowing the window corrupts memory instead of
-                            // reporting anything.
-                            // The vision executor is only built when a vision backend is
-                            // asked for. Leaving this unset is exactly what produced
-                            // "Vision executor should not be null" on every photographed
-                            // page. CPU rather than the text backend, because the image
-                            // encoder is the part most likely to be absent from a GPU
-                            // build, and a slower encode beats no encode at all.
-                            visionBackend = if (visionAllowed) Backend.CPU() else null,
-                            maxNumImages = if (visionAllowed) MAX_IMAGES else 0,
-                            maxNumTokens = if (visionAllowed) VISION_CONTEXT_TOKENS else MAX_CONTEXT_TOKENS,
+                            // No vision, ever. The model is text-only, so there is no
+                            // image encoder in the bundle to ask for — and asking anyway is
+                            // what produced "Vision executor should not be null" on every
+                            // photographed page. Pages are read by ML Kit before anything
+                            // reaches here.
+                            visionBackend = null,
+                            maxNumImages = 0,
+                            maxNumTokens = MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),
                     ).also {
@@ -432,7 +408,7 @@ class ModelSessionManager(
 
     companion object {
         const val IDLE_UNLOAD_MS = 60_000L
-        const val MIN_COMFORTABLE_RAM_GB = 4
+        const val MIN_COMFORTABLE_RAM_GB = 3
 
         /** How long a forced unload waits for an in-flight generation to stop. */
         const val FORCED_UNLOAD_TIMEOUT_MS = 4_000L
@@ -454,17 +430,6 @@ class ModelSessionManager(
          * number so the two cannot drift apart again.
          */
         const val MAX_CONTEXT_TOKENS = 4_096
-
-        /** Room for an encoded page image alongside the prompt and the reply. */
-        const val VISION_CONTEXT_TOKENS = 4_096
-        const val MAX_IMAGES = 1
-
-        /** What the runtime says when the engine has no image encoder loaded. */
-        val VISION_UNAVAILABLE_MARKERS = listOf(
-            "vision executor",
-            "TryLoadingVisionExecutor",
-            "vision is not supported",
-        )
 
         /** Roughly 400 words, which is more than any single answer here needs. */
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560

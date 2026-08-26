@@ -55,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -193,6 +194,12 @@ fun ScanHubScreen(
                     }
                     state.ocrError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    // A page the recogniser could not read. Almost always handwriting, so
+                    // this is an offer rather than a failure — and it is deliberately not
+                    // styled as an error, because nothing went wrong.
+                    if (state.needsCloudRead) {
+                        HandwritingNotice()
                     }
                     OutlinedTextField(
                         value = state.draft.bookTitle,
@@ -747,4 +754,35 @@ internal fun formatBytes(bytes: Long): String = when {
     bytes >= 1_000_000_000L -> "%.1f GB".format(bytes / 1_000_000_000.0)
     bytes >= 1_000_000L -> "%d MB".format(bytes / 1_000_000L)
     else -> "$bytes B"
+}
+
+/**
+ * Shown when the page is readable-looking but the recogniser could not make sense of it.
+ *
+ * A text recogniser reads printed shapes. Handwriting is not a harder version of that job,
+ * it is a different one, and no amount of retaking the photo will fix it — so telling
+ * someone to try again in better light would be advice that cannot work. This says what is
+ * actually true and what will actually help.
+ */
+@Composable
+private fun HandwritingNotice() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("This looks handwritten", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Offline reading handles printed pages. Handwritten ones need Cloud Read, " +
+                "which is coming soon.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "You can still type or paste the text below and shorten it now.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
 }

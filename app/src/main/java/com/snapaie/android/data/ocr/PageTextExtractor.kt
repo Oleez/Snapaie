@@ -4,73 +4,74 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.snapaie.android.domain.scan.TextQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/** Where a page's text came from, so the UI can say what happened. */
-enum class TextSource { MODEL, NONE }
+/**
+ * Where a page's text came from, and what to do when there isn't any.
+ *
+ * [NEEDS_CLOUD] is the interesting one. It does not mean the capture failed — it means the
+ * recogniser produced something too poor to condense, which on a photographed page almost
+ * always means handwriting. That is a page worth offering to read properly, not an error.
+ */
+enum class TextSource { RECOGNISER, NEEDS_CLOUD, NONE }
 
 data class PageText(val text: String, val source: TextSource)
 
 /**
  * Reads the text off a page.
  *
- * There is one reader now. The app used to run a text recogniser first and fall back to the
- * model when the result looked wrong, which sounds prudent and was not: the recogniser
- * cannot read handwriting at all, it fails by returning fragments rather than nothing, and
- * judging its output well enough to know when to distrust it turned out to be its own
- * unsolved problem. Two readers meant two failure modes and a rule for choosing between
- * them that was wrong at least as often as the recogniser was.
+ * The recogniser does this, not the model. It matches printed glyphs natively in
+ * milliseconds and costs about eleven megabytes, where a multimodal model costs two
+ * gigabytes, minutes per page, and more memory than most phones have. For a printed page
+ * that is an enormous price for a job a purpose-built recogniser does better.
  *
- * So the model reads the page. Slower, and the only thing that can read a handwritten one.
+ * What a recogniser cannot do is read handwriting — not poorly, but not at all. It fails by
+ * returning fragments rather than nothing, which is how a confident condensation of garbage
+ * used to reach the screen. So its output is judged rather than trusted: [TextQuality] sorts
+ * a real page from a handful of stray characters, and a page it cannot vouch for is marked
+ * [TextSource.NEEDS_CLOUD] rather than condensed anyway.
  */
 class PageTextExtractor(
     private val context: Context,
-    private val pageReader: PageReader,
+    private val ocrProcessor: OcrProcessor,
 ) {
 
-    /**
-     * Transcribes [uri], scaling it down first so the encoder gets one page rather than
-     * twelve megapixels of grain.
-     */
     suspend fun extract(uri: Uri): PageText = withContext(Dispatchers.IO) {
-        val path = localImagePath(uri) ?: return@withContext PageText("", TextSource.NONE)
-        val text = pageReader.readFile(path).trim()
-        PageText(text, if (text.isBlank()) TextSource.NONE else TextSource.MODEL)
+        val recognised = runCatching { ocrProcessor.extractText(uri) }.getOrDefault("").trim()
+        PageText(recognised, sourceFor(recognised))
     }
 
-    /** True when a photograph can be read at all right now. */
-    fun canRead(): Boolean = pageReader.canRead()
-
     /**
-     * A local copy of [uri] the model can read from, scaled down first.
+     * A local copy of [uri], scaled down first.
      *
-     * A phone camera produces twelve megapixels. A vision encoder does not want them: it
-     * tiles what it is given, and every tile is more tokens, more memory and more time —
-     * for a page of text, all spent resolving grain rather than letters. Capping the long
-     * edge keeps one page to roughly one tile, which is the difference between a request
-     * that fits in the context window and one that overruns it.
+     * A phone camera produces twelve megapixels; nothing downstream wants them. Capping the
+     * long edge keeps the stored page small, and keeps it within what a cloud transcription
+     * request can carry without paying to resolve grain rather than letters.
      */
     suspend fun localImagePath(uri: Uri): String? = withContext(Dispatchers.IO) {
         val source = localPathFor(uri) ?: return@withContext null
         runCatching { downscale(source) }.getOrDefault(source)
     }
 
+    private fun sourceFor(text: String): TextSource = classify(text)
+
     private fun downscale(path: String): String {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
         val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
-        if (longEdge <= 0 || longEdge <= MAX_VISION_EDGE) return path
+        if (longEdge <= 0 || longEdge <= MAX_PAGE_EDGE) return path
 
         var sample = 1
-        while (longEdge / (sample * 2) >= MAX_VISION_EDGE) sample *= 2
+        while (longEdge / (sample * 2) >= MAX_PAGE_EDGE) sample *= 2
         val bitmap = BitmapFactory.decodeFile(
             path,
             BitmapFactory.Options().apply { inSampleSize = sample },
         ) ?: return path
 
-        val scale = MAX_VISION_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height)
+        val scale = MAX_PAGE_EDGE.toFloat() / maxOf(bitmap.width, bitmap.height)
         val scaled = if (scale < 1f) {
             Bitmap.createScaledBitmap(
                 bitmap,
@@ -82,7 +83,7 @@ class PageTextExtractor(
             bitmap
         }
 
-        val target = File(context.cacheDir, "page-vision-${System.currentTimeMillis()}.jpg")
+        val target = File(context.cacheDir, "page-${System.currentTimeMillis()}.jpg")
         return try {
             target.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 90, it) }
             target.absolutePath
@@ -94,7 +95,7 @@ class PageTextExtractor(
         }
     }
 
-    /** The model reads from a file path, so a content URI has to be materialised first. */
+    /** A content URI has to be materialised before anything can open it by path. */
     private fun localPathFor(uri: Uri): String? {
         uri.path?.let { path ->
             if (uri.scheme == "file" && File(path).isFile) return path
@@ -108,13 +109,26 @@ class PageTextExtractor(
         }.getOrNull()
     }
 
-    private companion object {
+    companion object {
+        /** Long edge kept for the stored page: enough to read body text, small to send. */
+        private const val MAX_PAGE_EDGE = 1024
+
         /**
-         * Long edge handed to the vision encoder. Enough to read body text on a book page,
-         * small enough to stay near a single tile.
+         * What the recogniser gave us, judged.
+         *
+         * Three outcomes, not two, and the distinction is the whole point. A blank result
+         * is a page with no text on it — retaking the photo might help. A poor result is a
+         * page whose text this reader cannot handle, which on a photograph means
+         * handwriting, and no amount of retaking will fix that. Telling someone to try
+         * again in better light when the real answer is "this reader cannot read cursive"
+         * is advice that cannot work.
+         *
+         * Public and pure so the thresholds can be pinned by tests rather than guessed at.
          */
-        const val MAX_VISION_EDGE = 1024
-
-
+        fun classify(recognised: String): TextSource = when {
+            recognised.isBlank() -> TextSource.NONE
+            TextQuality.assess(recognised) == TextQuality.Verdict.GOOD -> TextSource.RECOGNISER
+            else -> TextSource.NEEDS_CLOUD
+        }
     }
 }
