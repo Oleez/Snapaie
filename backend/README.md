@@ -19,18 +19,24 @@ can edit.
 
 ## Deploying on Railway
 
-**The repository root is an Android app.** Railway will try to build it and fail with
-`railpack could not determine how to build the app` unless you tell it where the server is.
+The `Dockerfile` and `railway.json` that build this service live at the **repository root**,
+not in this directory. That looks wrong and is deliberate: Railway looks for them in the
+service's root directory, and this repository's root is an Android app. Left to itself,
+railpack finds `build.gradle.kts` and `gradlew.bat` and fails with *"could not determine how
+to build the app"*. Putting them at the root means no dashboard setting is needed and none
+can be lost.
 
-1. Railway → your service → **Settings → Source → Root Directory** → set to `backend`
-2. Railway detects `Dockerfile` and `railway.json` from there
-3. **Variables** → add the values from `.env.example`. Minimum to boot:
-   `GEMINI_API_KEY` and `JWT_SECRET` (`openssl rand -base64 48`)
-4. **New → Database → Postgres.** `DATABASE_URL` is injected automatically. Without it the
-   service still runs, but quota is in memory and resets on every deploy — do not take real
-   money in that state.
-5. **Settings → Networking → Generate Domain** (the service is currently unexposed)
-6. Check it: `curl https://<your-domain>/healthz`
+1. **Variables** → add the values from `.env.example`. Minimum to boot: `GEMINI_API_KEY` and
+   `JWT_SECRET` (`openssl rand -base64 48`). The service refuses to start without them.
+2. **New → Database → Postgres.** `DATABASE_URL` is injected automatically and the schema
+   creates itself. Without it quota lives in memory and resets on every deploy — do not take
+   real money in that state.
+3. **Settings → Networking → Generate Domain.** A new service is unexposed, so there is
+   nothing to curl until you do this.
+4. Check it: `curl https://<your-domain>/healthz`
+
+Leave **Root Directory** empty. Setting it to `backend` also works, but then Railway looks
+for a Dockerfile in here and there isn't one.
 
 Then set `snapaie.cloud.base.url` in `gradle.properties` to that domain.
 
@@ -61,11 +67,14 @@ Three independent limits, because the expensive failure is not one greedy user, 
 ## Local development
 
 ```bash
+cd backend
 npm install
 npm run build
 GEMINI_API_KEY=... JWT_SECRET=dev-secret node dist/index.js
 curl localhost:8080/healthz
 ```
+
+The image is built from the root: `docker build -f Dockerfile -t snapaie-backend .`
 
 The service refuses to start without its configuration rather than booting and failing on
 the first real request, which turns a five-second mistake into a support ticket.

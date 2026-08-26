@@ -1,0 +1,24 @@
+# The Android app is most of this repository and none of it belongs in the image.
+# Sending it as build context costs minutes per deploy and gigabytes of upload.
+app/
+gradle/
+docs/
+.gradle/
+.idea/
+.kotlin/
+build/
+*.iml
+gradlew.bat
+build.gradle.kts
+settings.gradle.kts
+gradle.properties
+local.properties
+*.apk
+*.aab
+*.litertlm
+*.pdf
+
+.git/
+**/node_modules/
+**/dist/
+**/.env
