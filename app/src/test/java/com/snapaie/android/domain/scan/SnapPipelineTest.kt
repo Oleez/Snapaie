@@ -147,7 +147,6 @@ class SnapPipelineTest {
         // a recognised page never reaches a model at all.
         val prose = proseFrom(fake, draft(image = photo.absolutePath))
         assertEquals("a device that cannot read images should not be asked to", 0, fake.imageCalls)
-        assertEquals("a recognised page should not need a model", 0, fake.textCalls)
         assertTrue("no prose produced", prose.isNotBlank())
     }
 
@@ -334,6 +333,46 @@ class SnapPipelineTest {
 
         assertTrue("the engine was left droppable between runs", pinnedDuringEveryCall)
         assertEquals("the pin outlived the snap", 0, fake.keepAliveHeld)
+    }
+
+    @Test
+    fun `the model does the condensing when it can`() = runTest {
+        // Restored deliberately. A model reading the passage knows which sentence carries
+        // the turn in a scene and which is scenery; ranking by shared vocabulary can only
+        // approximate that. So when there is one, its choice is the one used.
+        var asked = false
+        // Keep only the first two sentences, whatever the ranker would have chosen.
+        val fake = Fake(onText = { asked = true; flow { emit("0, 1") } })
+        val prose = proseFrom(fake, draft())
+
+        assertTrue("the model was never asked to choose", asked)
+        assertTrue("nothing came back", prose.isNotBlank())
+        Abridger.split(prose).forEach {
+            assertTrue("'${it.text}' is not the author's", page.contains(it.text))
+        }
+    }
+
+    @Test
+    fun `whatever the model does, a page always comes back`() = runTest {
+        // The reason it is safe to hand the model this job again. The device has already
+        // chosen by the time the model is woken, so it can be slow, refuse to load, or
+        // answer nonsense — none of which can leave the reader with an empty panel, which
+        // is what it did every time this appeared to hang.
+        val brokenModels = mapOf(
+            "silence" to Fake(onText = { flow { emit("") } }),
+            "a dead engine" to Fake(onText = { flow { error("engine gone") } }),
+            "nonsense" to Fake(onText = { flow { emit("I'm sorry, I can't help with that.") } }),
+            "runtime noise" to Fake(onText = { flow { emit("LiteRT-LM stream error: Status Code: 3.") } }),
+            "an out-of-range answer" to Fake(onText = { flow { emit("900, 901, 902") } }),
+        )
+        brokenModels.forEach { (label, fake) ->
+            val prose = proseFrom(fake, draft())
+            assertTrue("$label produced an empty page", prose.isNotBlank())
+            assertTrue("$label leaked into the page", !prose.contains("LiteRT"))
+            Abridger.split(prose).forEach {
+                assertTrue("$label invented '${it.text}'", page.contains(it.text))
+            }
+        }
     }
 
     @Test

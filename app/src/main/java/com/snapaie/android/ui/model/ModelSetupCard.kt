@@ -54,7 +54,7 @@ fun ModelSetupCard(
     LiquidGlassSurface {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                if (modelState.hasUpdateAvailable) "An update is ready" else "Read handwriting offline",
+                if (modelState.hasUpdateAvailable) "An update is ready" else "Turn on offline AI",
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
@@ -62,7 +62,7 @@ fun ModelSetupCard(
                     spec != null && modelState.hasUpdateAvailable ->
                         "A newer version is ready (${formatBytes(spec.expectedBytes)}). Everything keeps working while it downloads."
                     spec != null ->
-                        "Printed pages already work without this. The download lets the app read the page itself — handwritten notes, letters, filled-in forms — and adds bullets, steps, analogies, chat and the writing assistant. One ${formatBytes(spec.expectedBytes)} download, and it all stays on your phone."
+                        "The AI reads your pages — including handwriting — decides what to cut, and writes bullets, steps and analogies. It also powers chat and the writing assistant. One ${formatBytes(spec.expectedBytes)} download, and it all stays on your phone. Until then pages are still shortened, just without it."
                     else -> modelStatusMessage(modelState.updateStatus)
                 },
                 style = MaterialTheme.typography.bodySmall,

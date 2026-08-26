@@ -149,18 +149,59 @@ class WorkflowEngine(
      * book: every surviving sentence is the author's own, untouched. Nothing is
      * paraphrased, so nothing can be blunted, misattributed or invented.
      *
-     * It runs entirely on the device's own arithmetic, with no model involved. Once
-     * shortening became deletion, the only question left was which sentences to keep — and
-     * that is extractive summarisation, a ranking problem solved long before language
-     * models and answered by [SentenceRanker] in under a millisecond. Asking two gigabytes
-     * of weights for the same list of numbers cost minutes, a download, and every failure
-     * mode that comes with running a model on a phone.
+     * The device chooses first, and the model is asked to do better.
+     *
+     * That order is the whole point. [SentenceRanker] answers in well under a millisecond,
+     * so a usable page exists before the model is even woken — and once it exists, nothing
+     * the model does can leave the reader with nothing. It can be slow, it can fail to
+     * load, it can return a reply that makes no sense; the page is already there. What it
+     * cannot do any more is be the only thing standing between a snap and a result, which
+     * is what it was every time this appeared to hang.
+     *
+     * When it does answer, its choice is used. A model reading the passage knows which
+     * sentence carries the turn in a scene and which is scenery, and ranking by shared
+     * vocabulary can only approximate that.
      */
-    private fun abridge(source: String, targetWords: Int): String {
+    private suspend fun abridge(
+        source: String,
+        targetWords: Int,
+        deadline: Deadline,
+        onToken: suspend (String) -> Unit,
+    ): String {
         val sentences = Abridger.split(source)
         if (sentences.isEmpty()) return ""
         if (sentences.sumOf { it.words } <= targetWords) return source.trim()
-        return Abridger.assemble(sentences, Abridger.chooseLocally(sentences, targetWords))
+
+        val local = Abridger.assemble(sentences, Abridger.chooseLocally(sentences, targetWords))
+
+        val template = runCatching { prompts.read("prompts/abridge.md") }.getOrDefault("")
+        if (template.isBlank() || !sessionManager.isModelInstalled()) return local
+
+        // Walked a window at a time, so the length of the page is not limited by how much
+        // the model can read at once.
+        val room = PromptBudget.maxSourceChars(template, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+        val walk = runCatching {
+            ChunkedAbridgement.keepIndices(
+                sentences = sentences,
+                targetWords = targetWords,
+                maxChunkChars = room,
+            ) { numbered, count, runTarget ->
+                if (deadline.expired) return@keepIndices null
+                val prompt = template
+                    .replace("{{TARGET_WORDS}}", runTarget.toString())
+                    .replace("{{SENTENCES}}", numbered)
+                // A list of indices is tiny, so the budget can be small; four tokens a
+                // sentence is generous even if the model keeps every one of them.
+                val budget = (count * 4 + 32).coerceAtMost(ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+                streamOnce(prompt, budget, deadline, onToken).text.takeIf { it.isNotBlank() }
+            }
+        }.getOrNull() ?: return local
+
+        if (walk.keep.isEmpty()) return local
+        val assembled = Abridger.assemble(sentences, walk.keep)
+        // A reply that deleted the passage rather than shortening it is not an improvement.
+        if (Abridger.countWords(assembled) < targetWords / 3) return local
+        return assembled
     }
 
     /**
@@ -177,17 +218,19 @@ class WorkflowEngine(
      * composed. The result is one coherent list drawn from the whole capture rather than
      * several disconnected ones, or a faithful account of its first page.
      */
-    private fun materialFor(
+    private suspend fun materialFor(
         source: String,
         template: String,
         budgetTokens: Int,
+        deadline: Deadline,
+        onToken: suspend (String) -> Unit,
     ): String {
         val room = PromptBudget.maxSourceChars(template, budgetTokens)
         if (room <= 0) return source
         if (source.length <= room) return source
         // Aim slightly under the window so the reduced text is certain to fit.
         val targetWords = ((room * FIT_MARGIN) / AVERAGE_WORD_CHARS).toInt().coerceAtLeast(1)
-        val reduced = abridge(source, targetWords)
+        val reduced = abridge(source, targetWords, deadline, onToken)
         return if (reduced.isBlank()) source.take(room) else reduced.take(room)
     }
 
@@ -287,7 +330,7 @@ class WorkflowEngine(
         //    downloaded. Only styles that must be *written* — a list, an analogy — go on
         //    to ask a model, and only if there is one.
         if (draft.mode.canAbridge && source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val abridged = abridge(source, budget)
+            val abridged = abridge(source, budget, deadline, onToken)
             if (abridged.isNotBlank() && !BeatContract.isRuntimeNoise(abridged)) {
                 return ProseAttempt(abridged, null)
             }
@@ -300,7 +343,7 @@ class WorkflowEngine(
         ) {
             val textPrompt = promptFor(template, budget, imageMode = false, style = draft.mode) +
                 System.lineSeparator() + "The page:" + System.lineSeparator() +
-                materialFor(source, template, budgetTokens)
+                materialFor(source, template, budgetTokens, deadline, onToken)
             val raw = streamOnce(textPrompt, budgetTokens, deadline, onToken)
             val prose = BeatContract.cleanProse(raw.text)
             if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
@@ -317,7 +360,7 @@ class WorkflowEngine(
         //    and has no model downloaded is better served by the passage cut down than by
         //    an explanation of why they got nothing.
         if (source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val shortened = abridge(source, budget)
+            val shortened = abridge(source, budget, deadline, onToken)
             if (shortened.isNotBlank()) {
                 return ProseAttempt(
                     shortened,

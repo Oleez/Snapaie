@@ -128,25 +128,15 @@ fun ScanHubScreen(
             }
         }
 
-        // Shown only while a download is actually running, or once one is installed and
-        // has an update waiting.
-        //
-        // Condensing no longer needs it. Leading with a two gigabyte download asked people
-        // to pay for something before they had seen the app do anything, for a feature
-        // that works on every phone without it — and it was the first thing on the screen.
-        // The offer now lives on the Books tab and in Settings, where someone who wants
-        // bullets, analogies or chat will look for it.
-        if (modelState.isBusy || modelState.hasUpdateAvailable) {
-            item {
-                ModelSetupCard(
-                    modelState = modelState,
-                    onDownload = viewModel::downloadModel,
-                    onPause = viewModel::pauseModelDownload,
-                    onCancel = viewModel::cancelModelDownload,
-                    onCheckAgain = viewModel::checkForModelUpdate,
-                    onAcceptLicense = viewModel::acceptGemmaLicense,
-                )
-            }
+        item {
+            ModelSetupCard(
+                modelState = modelState,
+                onDownload = viewModel::downloadModel,
+                onPause = viewModel::pauseModelDownload,
+                onCancel = viewModel::cancelModelDownload,
+                onCheckAgain = viewModel::checkForModelUpdate,
+                onAcceptLicense = viewModel::acceptGemmaLicense,
+            )
         }
 
         item {
