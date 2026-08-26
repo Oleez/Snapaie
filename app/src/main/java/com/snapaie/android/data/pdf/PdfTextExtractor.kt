@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.ocr.PageReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
  */
 class PdfTextExtractor(
     private val context: Context,
-    private val ocrProcessor: OcrProcessor,
+    private val pageReader: PageReader,
 ) {
 
     data class PageResult(val pageIndex: Int, val text: String)
@@ -45,7 +45,7 @@ class PdfTextExtractor(
                     val bitmap = Bitmap.createBitmap(RENDER_WIDTH, height, Bitmap.Config.ARGB_8888)
                     bitmap.eraseColor(android.graphics.Color.WHITE)
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    val text = runCatching { ocrProcessor.extractText(bitmap) }.getOrDefault("")
+                    val text = runCatching { pageReader.readBitmap(bitmap) }.getOrDefault("")
                     bitmap.recycle()
                     if (text.isNotBlank()) {
                         builder.appendLine(text)

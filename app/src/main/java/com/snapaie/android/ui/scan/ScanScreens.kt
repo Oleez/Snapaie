@@ -185,29 +185,6 @@ fun ScanHubScreen(
                             Text("PDF")
                         }
                     }
-                    // Only worth offering once there is a photo to read.
-                    if (state.draft.imagePath.isNotBlank()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Switch(
-                                checked = state.draft.readImageWithAi,
-                                onCheckedChange = viewModel::setReadImageWithAi,
-                            )
-                            Column(Modifier.weight(1f)) {
-                                Text("Handwritten page", style = MaterialTheme.typography.bodyMedium)
-                                Text(
-                                    if (modelState.isModelInstalled) {
-                                        "Reads the photo itself instead of scanning for printed text."
-                                    } else {
-                                        "Needs offline AI — turn it on from the Books tab."
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
                     if (state.isOcrRunning) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)

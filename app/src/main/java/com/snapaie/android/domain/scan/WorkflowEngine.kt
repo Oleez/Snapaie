@@ -272,10 +272,6 @@ class WorkflowEngine(
         val hasImage = sessionManager.visionAllowed &&
             draft.imagePath.isNotBlank() &&
             java.io.File(draft.imagePath).isFile
-        if (!hasImage && source.length < MIN_PROSE_SOURCE_CHARS) {
-            return ProseAttempt("", "There is not enough text on this page to shorten.")
-        }
-
         val template = runCatching { prompts.read("prompts/condense_page.md") }.getOrDefault("")
         if (template.isBlank()) return ProseAttempt("", "The condenser is missing from this build.")
 
@@ -283,29 +279,18 @@ class WorkflowEngine(
         var reason: String? = null
         val deadline = startDeadline(SNAP_BUDGET_MS)
 
-        // 1. Read the photograph with the model, and use what it reads as the page.
-        //
-        //    This is the job only a model can do. A text recogniser matches printed shapes;
-        //    it cannot read a page of handwriting, and on one it returns either nothing or
-        //    confident nonsense. A model that looks at the image can read it — a letter, a
-        //    lab notebook, lecture notes, a form filled in by hand.
-        //
-        //    Note what it is asked for: the words on the page, nothing else. It transcribes
-        //    and stops there, and the shortening is done afterwards on the device. Asking
-        //    it to read *and* condense in one pass meant a single slow call that could fail
-        //    at either job and gave no way to tell which had happened.
-        val transcribed = if (hasImage && sessionManager.isModelInstalled() && wantsImageRead(draft, source)) {
-            readImage(draft.imagePath, deadline, onToken)
-        } else {
-            ""
-        }
-        if (transcribed.isNotBlank()) source = transcribed
-        else if (hasImage && wantsImageRead(draft, source) && source.length < MIN_PROSE_SOURCE_CHARS) {
-            reason = if (sessionManager.isModelInstalled()) {
-                "The photo could not be read clearly."
-            } else {
-                NEEDS_MODEL_FOR_HANDWRITING
-            }
+        // The page arrives already read. Capture transcribes with the model before any of
+        // this runs, so there is no second reading pass here and no rule for deciding
+        // between two readers — there is only one.
+        if (source.length < MIN_PROSE_SOURCE_CHARS) {
+            return ProseAttempt(
+                "",
+                if (hasImage && !sessionManager.isModelInstalled()) {
+                    NEEDS_MODEL_TO_READ
+                } else {
+                    "There is not enough text on this page to shorten."
+                },
+            )
         }
 
         // Measured now, not before the photo was read.
@@ -380,44 +365,6 @@ class WorkflowEngine(
             }
         }
         return ProseAttempt("", reason ?: "Nothing came back. Try again.")
-    }
-
-    /**
-     * Whether the model should be asked to read the photo.
-     *
-     * Either because the reader asked — they know it is handwriting and the recogniser
-     * cannot — or because the recogniser plainly failed, which on a handwritten page is
-     * what happens: a few stray characters, or nothing at all.
-     */
-    private fun wantsImageRead(draft: BookScanDraft, recognised: String): Boolean =
-        draft.readImageWithAi || recognised.length < MIN_PROSE_SOURCE_CHARS
-
-    /**
-     * Transcribes the page, returning the words on it and nothing else.
-     *
-     * Anything that comes back describing the image rather than reproducing it is thrown
-     * away. A model asked to transcribe sometimes answers "This appears to be a handwritten
-     * note about..." — which is a summary of a page nobody has read yet, and using it as
-     * the source text would silently replace the document with a description of it.
-     */
-    private suspend fun readImage(
-        imagePath: String,
-        deadline: Deadline,
-        onToken: suspend (String) -> Unit,
-    ): String {
-        val prompt = runCatching { prompts.read("prompts/transcribe.md") }.getOrDefault("")
-        if (prompt.isBlank()) return ""
-        val raw = streamVision(prompt, imagePath, TRANSCRIBE_MAX_TOKENS, deadline, onToken)
-        val text = BeatContract.cleanProse(raw.text).trim()
-        if (text.isBlank() || BeatContract.isRuntimeNoise(text)) return ""
-        if (readsLikeDescription(text)) return ""
-        return text
-    }
-
-    /** Openings a model uses when it is describing a page instead of transcribing it. */
-    private fun readsLikeDescription(text: String): Boolean {
-        val opening = text.take(80).lowercase()
-        return DESCRIPTION_OPENINGS.any { opening.contains(it) }
     }
 
     private fun promptFor(
@@ -561,17 +508,9 @@ class WorkflowEngine(
         const val SNAP_BUDGET_MS = 150_000L
 
         /** Said when a style that must be written was asked for with nothing to write it. */
-        /** A transcription is the whole page, so it needs far more room than a reply. */
-        const val TRANSCRIBE_MAX_TOKENS = 1_400
-
-        /** Said when a photo needs reading and there is nothing installed to read it. */
-        const val NEEDS_MODEL_FOR_HANDWRITING =
-            "This page needs offline AI to be read. Turn it on to read handwriting."
-
-        val DESCRIPTION_OPENINGS = listOf(
-            "this appears to be", "this image shows", "the image shows", "this is a page",
-            "the page contains", "here is the text", "sure, here", "i can see",
-        )
+        /** Said when a photo is the only source and nothing is installed to read it. */
+        const val NEEDS_MODEL_TO_READ =
+            "Turn on offline AI to read photos — it reads printed pages and handwriting."
 
         const val NEEDS_MODEL_FOR_STYLE =
             "Shortened on the spot. Turn on offline AI for bullets, steps and analogies."

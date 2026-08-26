@@ -4,7 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.ocr.PageReader
 import com.snapaie.android.domain.book.ChapterHint
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
@@ -29,7 +29,7 @@ import kotlin.coroutines.coroutineContext
  */
 class PdfIngestor(
     private val context: Context,
-    private val ocrProcessor: OcrProcessor,
+    private val pageReader: PageReader,
 ) {
 
     suspend fun ingest(
@@ -116,7 +116,7 @@ class PdfIngestor(
             val bitmap = Bitmap.createBitmap(OCR_RENDER_WIDTH, height, Bitmap.Config.ARGB_8888)
             bitmap.eraseColor(android.graphics.Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            val text = runCatching { ocrProcessor.extractText(bitmap) }.getOrDefault("")
+            val text = runCatching { pageReader.readBitmap(bitmap) }.getOrDefault("")
             bitmap.recycle()
             text
         }

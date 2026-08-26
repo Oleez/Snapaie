@@ -27,7 +27,7 @@ import com.snapaie.android.data.ai.VisionGuard
 import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.MIGRATION_2_3
 import com.snapaie.android.data.local.SnapAieDatabase
-import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.ocr.PageReader
 import com.snapaie.android.data.ocr.PageTextExtractor
 import com.snapaie.android.data.pdf.PdfTextExtractor
 import com.snapaie.android.data.preferences.AppPreferencesRepository
@@ -96,7 +96,6 @@ class SnapAieApplication : Application() {
             scope = appScope,
             visionGuard = visionGuard,
         )
-        val ocrProcessor = OcrProcessor(applicationContext)
 
         val billingBridge = BillingBridge(
             app = this,
@@ -106,12 +105,13 @@ class SnapAieApplication : Application() {
 
         val bookStorage = BookStorage(applicationContext)
         val promptLibrary = PromptLibrary(applicationContext)
+        val pageReader = PageReader(applicationContext, sessionManager, promptLibrary)
         val bookRepository = BookRepository(
             storage = bookStorage,
             bookDao = database.bookDao(),
             condenseDao = database.condenseDao(),
             assetDao = database.bookAssetDao(),
-            pdfIngestor = PdfIngestor(applicationContext, ocrProcessor),
+            pdfIngestor = PdfIngestor(applicationContext, pageReader),
             epubIngestor = EpubIngestor(),
         )
         val condensePipeline = CondensePipeline(
@@ -136,9 +136,8 @@ class SnapAieApplication : Application() {
             modelRegistry = modelRegistry,
             modelDownloadController = downloadController,
             sessionManager = sessionManager,
-            ocrProcessor = ocrProcessor,
-            pdfTextExtractor = PdfTextExtractor(applicationContext, ocrProcessor),
-            pageTextExtractor = PageTextExtractor(applicationContext, ocrProcessor, sessionManager),
+            pdfTextExtractor = PdfTextExtractor(applicationContext, pageReader),
+            pageTextExtractor = PageTextExtractor(applicationContext, pageReader),
             bookStorage = bookStorage,
             bookRepository = bookRepository,
             condensePipeline = condensePipeline,
@@ -189,7 +188,6 @@ data class AppContainer(
     val modelRegistry: ModelRegistry,
     val modelDownloadController: ModelDownloadController,
     val sessionManager: ModelSessionManager,
-    val ocrProcessor: OcrProcessor,
     val pdfTextExtractor: PdfTextExtractor,
     val pageTextExtractor: PageTextExtractor,
     val bookStorage: BookStorage,

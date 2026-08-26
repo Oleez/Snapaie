@@ -47,13 +47,7 @@ class SnapPipelineTest {
         text: String = page,
         image: String = "",
         style: ExplainStyle = ExplainStyle.Auto,
-        readImageWithAi: Boolean = false,
-    ) = BookScanDraft(
-        pageText = text,
-        imagePath = image,
-        mode = style,
-        readImageWithAi = readImageWithAi,
-    )
+    ) = BookScanDraft(pageText = text, imagePath = image, mode = style)
 
     private class Fake(
         val installed: Boolean = true,
@@ -133,98 +127,6 @@ class SnapPipelineTest {
     }
 
     @Test
-    fun `a missing vision executor falls through to the text path`() = runTest {
-        // The exact failure seen on device: the engine had no image encoder loaded.
-        val fake = Fake(
-            onImage = {
-                flow<String> {
-                    error("Status Code: 3. Message: Vision executor should not be null, please TryLoadingVisionExecutor() first.")
-                }
-            },
-        )
-        // The device from the report: its build has no image encoder, so every photo used
-        // to end in that error. Nothing asks it now — shortening is done on the device, so
-        // a recognised page never reaches a model at all.
-        val prose = proseFrom(fake, draft(image = photo.absolutePath))
-        assertEquals("a device that cannot read images should not be asked to", 0, fake.imageCalls)
-        assertTrue("no prose produced", prose.isNotBlank())
-    }
-
-    @Test
-    fun `an unreadable photo with no text is explained, not left blank`() = runTest {
-        // Nothing recognised and nothing readable: there is genuinely no page to shorten,
-        // and saying so is better than inventing one or showing an empty panel.
-        val fake = Fake(onImage = { flow<String> { error("Vision executor should not be null") } })
-        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
-        assertTrue("the photo was never tried", fake.imageCalls > 0)
-        assertTrue("content was invented from an unreadable page", prose.isBlank())
-    }
-
-    @Test
-    fun `a handwritten page is read by the model and then shortened here`() = runTest {
-        // The division of labour the app now rests on. Only a model can read handwriting;
-        // only the device can shorten it in under a millisecond. So the model transcribes
-        // and stops, and the shortening happens afterwards from its words.
-        val handwriting = "Monday. The frost took the beans overnight and the top field is " +
-            "bare. Walked to Hallow Bridge to ask about the mare. Tom says she is sound but " +
-            "will not sell before spring. Owe the miller four shillings still. Rain by " +
-            "evening and the roof over the byre is letting water again."
-        var transcribePrompt = ""
-        val fake = Fake(onImage = { prompt ->
-            transcribePrompt = prompt
-            flow { emit(handwriting) }
-        })
-
-        // The recogniser found nothing, as it does on handwriting.
-        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath, readImageWithAi = true))
-
-        assertTrue("the photo was never read", fake.imageCalls > 0)
-        assertTrue("the model was not asked to transcribe", transcribePrompt.contains("exactly what it says"))
-        assertTrue("nothing came back", prose.isNotBlank())
-        assertTrue("shorter version is not shorter", prose.length < handwriting.length)
-        // Shortened by deletion, so every surviving sentence is what was written.
-        Abridger.split(prose).forEach {
-            assertTrue("'${it.text}' was never on the page", handwriting.contains(it.text))
-        }
-    }
-
-    @Test
-    fun `asking for a handwritten read overrides a recogniser that found something`() = runTest {
-        // A recogniser handed a handwritten page often returns confident nonsense rather
-        // than nothing, so "it found some text" cannot be the test for whether to look.
-        val fake = Fake(onImage = { flow { emit("The frost took the beans overnight and the top field is bare.") } })
-        proseFrom(fake, draft(image = photo.absolutePath, readImageWithAi = true))
-        assertTrue("the reader asked and was ignored", fake.imageCalls > 0)
-    }
-
-    @Test
-    fun `a description of the page is refused as a transcription`() = runTest {
-        // Asked to transcribe, a model sometimes answers "This appears to be a handwritten
-        // note about...". Using that as the page would replace the document with a
-        // description of it, and nothing downstream could tell.
-        val fake = Fake(onImage = { flow { emit("This appears to be a handwritten note about farming.") } })
-        val prose = proseFrom(fake, draft(image = photo.absolutePath, readImageWithAi = true))
-        assertFalse("a description was accepted as the page", prose.contains("This appears to be"))
-    }
-
-    @Test
-    fun `a page the recogniser read does not wait for the photo to be read again`() = runTest {
-        // Reading an image runs the encoder before a single word is generated, and on a
-        // phone that is most of the wait. When the text is already in hand it buys nothing
-        // — and paying for it on every snap is why a capture appeared to never finish.
-        val fake = Fake()
-        proseFrom(fake, draft(image = photo.absolutePath))
-        assertEquals("the photo was read even though the page was already recognised", 0, fake.imageCalls)
-    }
-
-    @Test
-    fun `a photo is still read when the recogniser found nothing`() = runTest {
-        val fake = Fake()
-        proseFrom(fake, draft(text = "", image = photo.absolutePath))
-        assertTrue("the photo was never read", fake.imageCalls > 0)
-    }
-
-    @Test
     fun `a runtime error is never printed into the page`() = runTest {
         // It used to be sent down the same channel as the text and pasted onto the front.
         val fake = Fake(
@@ -255,14 +157,6 @@ class SnapPipelineTest {
             "and discusses a rare form of intelligence that schools do not teach anyone."
         val prose = proseFrom(Fake(onText = { flow { emit(summary) } }, onImage = { flow { emit(summary) } }), draft())
         assertTrue("rejection wiped the result", prose.isNotBlank())
-    }
-
-    @Test
-    fun `vision is skipped entirely once disallowed`() = runTest {
-        val fake = Fake(visionAllowed = false)
-        val prose = proseFrom(fake, draft(image = photo.absolutePath))
-        assertTrue("image was sent despite vision being off", fake.imageCalls == 0)
-        assertTrue("nothing was produced", prose.isNotBlank())
     }
 
     @Test
@@ -333,6 +227,19 @@ class SnapPipelineTest {
 
         assertTrue("the engine was left droppable between runs", pinnedDuringEveryCall)
         assertEquals("the pin outlived the snap", 0, fake.keepAliveHeld)
+    }
+
+    @Test
+    fun `a photo with no readable text says why rather than showing nothing`() = runTest {
+        // Reading a photo now happens at capture, so by the time this runs the page is
+        // either text or it is nothing. Nothing, with a photo attached and no model to
+        // read it, has exactly one honest explanation.
+        val fake = Fake(installed = false)
+        var reason = ""
+        engineWith(fake).run(draft(text = "", image = photo.absolutePath)).collect { event ->
+            if (event is WorkflowEvent.Phase) reason = event.update.text.ifBlank { reason }
+        }
+        assertTrue("the reader was told nothing: '$reason'", reason.contains("offline AI"))
     }
 
     @Test

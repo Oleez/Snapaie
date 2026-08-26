@@ -4,46 +4,44 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import com.snapaie.android.data.ai.ModelSessionManager
-import com.snapaie.android.domain.scan.TextQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /** Where a page's text came from, so the UI can say what happened. */
-enum class TextSource { RECOGNISER, MODEL, NONE }
+enum class TextSource { MODEL, NONE }
 
 data class PageText(val text: String, val source: TextSource)
 
 /**
- * Reads the text off a page, with a second opinion when the first is poor.
+ * Reads the text off a page.
  *
- * The fast text recogniser handles a flat, well-lit, printed page better than anything and
- * costs milliseconds, so it always goes first. What it cannot do is cope with a curved
- * spine, a column that wraps oddly, or a page where the lighting ate the thin strokes — and
- * it fails *quietly*, returning fragments rather than nothing, which is how a confident
- * condensation of garbage ends up in front of the user.
+ * There is one reader now. The app used to run a text recogniser first and fall back to the
+ * model when the result looked wrong, which sounds prudent and was not: the recogniser
+ * cannot read handwriting at all, it fails by returning fragments rather than nothing, and
+ * judging its output well enough to know when to distrust it turned out to be its own
+ * unsolved problem. Two readers meant two failure modes and a rule for choosing between
+ * them that was wrong at least as often as the recogniser was.
  *
- * So its output is judged. When it looks wrong and the offline model is available, the model
- * is asked to read the picture itself: far slower, but it sees layout and context rather
- * than isolated glyphs. Whichever answer is better wins.
+ * So the model reads the page. Slower, and the only thing that can read a handwritten one.
  */
 class PageTextExtractor(
     private val context: Context,
-    private val ocrProcessor: OcrProcessor,
-    private val sessionManager: ModelSessionManager,
+    private val pageReader: PageReader,
 ) {
 
+    /**
+     * Transcribes [uri], scaling it down first so the encoder gets one page rather than
+     * twelve megapixels of grain.
+     */
     suspend fun extract(uri: Uri): PageText = withContext(Dispatchers.IO) {
-        // Recognition only. The model used to be asked to transcribe a page the recogniser
-        // struggled with, which cost a whole generation before the work of condensing had
-        // even started — and then a second one to condense. Since the model reads the
-        // photograph directly when it condenses, this text is no longer on the path to a
-        // result: it is kept for search, for word counts, and for comparing against the
-        // original, none of which the user waits on.
-        val recognised = runCatching { ocrProcessor.extractText(uri) }.getOrDefault("").trim()
-        PageText(recognised, sourceFor(recognised))
+        val path = localImagePath(uri) ?: return@withContext PageText("", TextSource.NONE)
+        val text = pageReader.readFile(path).trim()
+        PageText(text, if (text.isBlank()) TextSource.NONE else TextSource.MODEL)
     }
+
+    /** True when a photograph can be read at all right now. */
+    fun canRead(): Boolean = pageReader.canRead()
 
     /**
      * A local copy of [uri] the model can read from, scaled down first.
@@ -109,9 +107,6 @@ class PageTextExtractor(
             target.absolutePath
         }.getOrNull()
     }
-
-    private fun sourceFor(text: String): TextSource =
-        if (text.isBlank()) TextSource.NONE else TextSource.RECOGNISER
 
     private companion object {
         /**

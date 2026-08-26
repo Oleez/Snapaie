@@ -14,7 +14,8 @@ do, pages are still shortened — just without it.
 ## What it does
 
 **Bring a book in** — share or "Open with" a PDF or EPUB from any app, pick one from
-storage, or photograph a physical book page by page.
+storage, or photograph a physical book page by page. Photographs are read by the model, so
+a photographed page needs the download; a PDF with a text layer does not.
 
 **Choose a length** — 30%, 10%, or an exact page count. The app tells you up front roughly
 how long it will take, because a 500-page book is a multi-hour job on a phone.
@@ -34,7 +35,7 @@ assistant.
 
 ```
 PDF / EPUB / camera
-        ↓  text layer where there is one, OCR where there is not
+        ↓  text layer where there is one, the model reads the picture where there is not
    one flat text buffer
         ↓  chapters from the outline, or from heading heuristics
    chapters → beats (~900 source words each)
@@ -101,8 +102,9 @@ hole in a story is not. Those passages are marked in the reader.
 
 ## The model
 
-It does the work: reads the page, decides what to cut, and writes the styles that have to
-be composed. One thing on that list the device cannot do at all — **it reads the page**.
+Everything that reads or writes goes through it. It reads the page — the only thing here
+that can, now that the text recogniser is gone — decides what to cut, and writes the styles
+that have to be composed.
 
 A text recogniser matches printed shapes. Hand it a page of handwriting and it returns a
 few stray characters or nothing at all — which is why a letter, a lab notebook, lecture
@@ -146,9 +148,12 @@ proven model exists to fall back to.
 - **A full-length book takes hours.** The UI says so before you start, runs the job as
   resumable foreground work, pauses when the device gets too hot, and lets you read what is
   finished. It does not make it fast.
-- **The document scanner needs Google Play Services.** ML Kit's scanner gives edge
-  detection and auto-capture; without Play Services the app falls back to plain camera
-  capture, so scanning still works but you crop by hand.
+- **A photographed page needs the model.** There is no text recogniser any more. A
+  recogniser reads printed glyphs quickly and cannot read handwriting at all, and it failed
+  by returning fragments rather than nothing — which is how a confident condensation of
+  garbage reached the screen. One reader that can read anything beats two and a rule for
+  choosing between them. The cost is that photographs do nothing until the model is
+  downloaded; PDFs and EPUBs with a text layer are unaffected.
 - **PDF export uses the standard PDF fonts**, which cover Western European text. Non-Latin
   scripts are not yet supported in PDF output; EPUB and Markdown have no such limit.
 
@@ -170,5 +175,3 @@ Sources:
 
 - LiteRT-LM Android guide: https://developers.google.com/edge/litert-lm/android
 - LiteRT-LM repository: https://github.com/google-ai-edge/LiteRT-LM
-- ML Kit text recognition: https://developers.google.com/ml-kit/vision/text-recognition/v2/android
-- ML Kit document scanner: https://developers.google.com/ml-kit/vision/doc-scanner
