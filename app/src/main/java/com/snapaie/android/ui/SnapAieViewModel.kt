@@ -130,6 +130,11 @@ class SnapAieViewModel(
         _uiState.update { it.copy(draft = it.draft.copy(context = context)) }
     }
 
+    /** Read the photo with the model rather than the text recogniser (handwriting). */
+    fun setReadImageWithAi(enabled: Boolean) {
+        _uiState.update { it.copy(draft = it.draft.copy(readImageWithAi = enabled)) }
+    }
+
     fun downloadModel(wifiOnly: Boolean = false) {
         container.modelRepository.startDownload(wifiOnly)
     }

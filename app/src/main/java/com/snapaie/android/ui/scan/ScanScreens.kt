@@ -44,6 +44,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -192,6 +193,29 @@ fun ScanHubScreen(
                         }
                         OutlinedButton(onClick = { pdfPicker.launch("application/pdf") }) {
                             Text("PDF")
+                        }
+                    }
+                    // Only worth offering once there is a photo to read.
+                    if (state.draft.imagePath.isNotBlank()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Switch(
+                                checked = state.draft.readImageWithAi,
+                                onCheckedChange = viewModel::setReadImageWithAi,
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text("Handwritten page", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    if (modelState.isModelInstalled) {
+                                        "Reads the photo itself instead of scanning for printed text."
+                                    } else {
+                                        "Needs offline AI — turn it on from the Books tab."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
                         }
                     }
                     if (state.isOcrRunning) {

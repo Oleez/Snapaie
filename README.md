@@ -99,9 +99,21 @@ hole in a story is not. Those passages are marked in the reader.
 
 ## The model
 
-Optional. Condensing does not use it. It powers the styles that must be *written* rather
-than trimmed — Bullets, Steps, Analogy — plus chat over a finished book and the writing
-assistant. Everything else works with nothing downloaded.
+Optional, and it does one thing the device cannot: **it reads the page**.
+
+A text recogniser matches printed shapes. Hand it a page of handwriting and it returns a
+few stray characters or nothing at all — which is why a letter, a lab notebook, lecture
+notes or a form filled in by hand were previously out of reach. A model that looks at the
+image can read them. Turn on "Handwritten page" under a photo and it transcribes what is
+there; the shortening then happens on the device as usual.
+
+It transcribes and stops. Asking it to read *and* condense in one pass was a single slow
+call that could fail at either job with no way to tell which, and the condensing is better
+done by the ranker anyway.
+
+Beyond reading, it powers the styles that must be *written* rather than trimmed — Bullets,
+Steps, Analogy — plus chat over a finished book and the writing assistant. Printed pages
+need none of it.
 
 Gemma 4 E2B, Apache-2.0, in LiteRT-LM's `.litertlm` format:
 

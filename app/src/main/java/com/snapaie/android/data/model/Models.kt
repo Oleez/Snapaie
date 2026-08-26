@@ -252,6 +252,15 @@ data class BookScanDraft(
      * the critical path to a result.
      */
     val imagePath: String = "",
+    /**
+     * Ask the model to read the photo rather than trusting the text recogniser.
+     *
+     * The recogniser matches printed shapes and cannot read handwriting — on a handwritten
+     * page it returns a few stray characters or nothing. A model that looks at the image
+     * can read it, so this is the switch for a letter, a lab notebook or lecture notes.
+     * It is also turned on automatically when the recogniser plainly found nothing.
+     */
+    val readImageWithAi: Boolean = false,
 )
 
 data class PhaseUpdate(

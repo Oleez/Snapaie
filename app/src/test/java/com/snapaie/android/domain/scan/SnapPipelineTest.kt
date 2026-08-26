@@ -47,7 +47,13 @@ class SnapPipelineTest {
         text: String = page,
         image: String = "",
         style: ExplainStyle = ExplainStyle.Auto,
-    ) = BookScanDraft(pageText = text, imagePath = image, mode = style)
+        readImageWithAi: Boolean = false,
+    ) = BookScanDraft(
+        pageText = text,
+        imagePath = image,
+        mode = style,
+        readImageWithAi = readImageWithAi,
+    )
 
     private class Fake(
         val installed: Boolean = true,
@@ -83,7 +89,9 @@ class SnapPipelineTest {
         prompts = { path ->
             // Mirrors the real template's placeholders, so a slot that stops being filled
             // in production fails here too.
-            if (path.endsWith("abridge.md")) {
+            if (path.endsWith("transcribe.md")) {
+                "Read the attached page and write out exactly what it says."
+            } else if (path.endsWith("abridge.md")) {
                 "Keep about {{TARGET_WORDS}} words.\n{{SENTENCES}}"
             } else if (path.endsWith("condense_page.md")) {
                 "Retell this page shorter.\n{{STYLE}}\nAim for about {{TARGET_WORDS}} words.\n{{SOURCE_BLOCK}}"
@@ -151,6 +159,53 @@ class SnapPipelineTest {
         val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
         assertTrue("the photo was never tried", fake.imageCalls > 0)
         assertTrue("content was invented from an unreadable page", prose.isBlank())
+    }
+
+    @Test
+    fun `a handwritten page is read by the model and then shortened here`() = runTest {
+        // The division of labour the app now rests on. Only a model can read handwriting;
+        // only the device can shorten it in under a millisecond. So the model transcribes
+        // and stops, and the shortening happens afterwards from its words.
+        val handwriting = "Monday. The frost took the beans overnight and the top field is " +
+            "bare. Walked to Hallow Bridge to ask about the mare. Tom says she is sound but " +
+            "will not sell before spring. Owe the miller four shillings still. Rain by " +
+            "evening and the roof over the byre is letting water again."
+        var transcribePrompt = ""
+        val fake = Fake(onImage = { prompt ->
+            transcribePrompt = prompt
+            flow { emit(handwriting) }
+        })
+
+        // The recogniser found nothing, as it does on handwriting.
+        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath, readImageWithAi = true))
+
+        assertTrue("the photo was never read", fake.imageCalls > 0)
+        assertTrue("the model was not asked to transcribe", transcribePrompt.contains("exactly what it says"))
+        assertTrue("nothing came back", prose.isNotBlank())
+        assertTrue("shorter version is not shorter", prose.length < handwriting.length)
+        // Shortened by deletion, so every surviving sentence is what was written.
+        Abridger.split(prose).forEach {
+            assertTrue("'${it.text}' was never on the page", handwriting.contains(it.text))
+        }
+    }
+
+    @Test
+    fun `asking for a handwritten read overrides a recogniser that found something`() = runTest {
+        // A recogniser handed a handwritten page often returns confident nonsense rather
+        // than nothing, so "it found some text" cannot be the test for whether to look.
+        val fake = Fake(onImage = { flow { emit("The frost took the beans overnight and the top field is bare.") } })
+        proseFrom(fake, draft(image = photo.absolutePath, readImageWithAi = true))
+        assertTrue("the reader asked and was ignored", fake.imageCalls > 0)
+    }
+
+    @Test
+    fun `a description of the page is refused as a transcription`() = runTest {
+        // Asked to transcribe, a model sometimes answers "This appears to be a handwritten
+        // note about...". Using that as the page would replace the document with a
+        // description of it, and nothing downstream could tell.
+        val fake = Fake(onImage = { flow { emit("This appears to be a handwritten note about farming.") } })
+        val prose = proseFrom(fake, draft(image = photo.absolutePath, readImageWithAi = true))
+        assertFalse("a description was accepted as the page", prose.contains("This appears to be"))
     }
 
     @Test
