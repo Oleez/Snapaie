@@ -15,8 +15,10 @@ CREATE TABLE IF NOT EXISTS accounts (
   pages_left    INTEGER NOT NULL DEFAULT 0,
   plan          TEXT    NOT NULL DEFAULT 'none',
   renews_at     TIMESTAMPTZ,
+  granted_month TEXT,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS granted_month TEXT;
 CREATE TABLE IF NOT EXISTS usage_daily (
   day           DATE PRIMARY KEY,
   pages         INTEGER NOT NULL DEFAULT 0
@@ -27,7 +29,7 @@ let pool: pg.Pool | null = null;
 
 /** In-memory fallback so the service boots for a smoke test without a database. */
 const memory = {
-  accounts: new Map<string, { pagesLeft: number; plan: string }>(),
+  accounts: new Map<string, { pagesLeft: number; plan: string; grantedMonth?: string }>(),
   today: { day: '', pages: 0 },
 };
 
@@ -100,6 +102,50 @@ export async function grantPages(accountId: string, pages: number, plan: string)
     [accountId, pages, plan],
   );
   return rows[0].pages_left;
+}
+
+/**
+ * Tops an account up to its monthly allowance, once per calendar month.
+ *
+ * Set rather than added, and guarded by the month it was last granted. Otherwise every
+ * app launch would call this and hand out another allowance — the endpoint that opens a
+ * session is the same one that grants, because a client with no account has nowhere else
+ * to ask, so it is called constantly and must be idempotent within the month.
+ *
+ * Purchased credits are deliberately not touched: they never expire and stack on top,
+ * the way the extension's top-ups do. Only the allowance resets.
+ */
+export async function grantMonthlyAllowance(
+  accountId: string,
+  pages: number,
+  plan: string,
+): Promise<number> {
+  const month = new Date().toISOString().slice(0, 7);
+
+  if (!pool) {
+    const account = memory.accounts.get(accountId);
+    if (account?.grantedMonth === month) return account.pagesLeft;
+    const carried = account && account.grantedMonth !== month ? account.pagesLeft : 0;
+    // Anything left from a purchase carries; the allowance itself does not accumulate.
+    const next = Math.max(carried, pages);
+    memory.accounts.set(accountId, { pagesLeft: next, plan, grantedMonth: month });
+    return next;
+  }
+
+  const { rows } = await pool.query<{ pages_left: number }>(
+    `INSERT INTO accounts (id, pages_left, plan, granted_month, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (id) DO UPDATE
+       SET pages_left = GREATEST(accounts.pages_left, EXCLUDED.pages_left),
+           plan = EXCLUDED.plan,
+           granted_month = EXCLUDED.granted_month,
+           updated_at = now()
+     WHERE accounts.granted_month IS DISTINCT FROM EXCLUDED.granted_month
+     RETURNING pages_left`,
+    [accountId, pages, plan, month],
+  );
+  // No row means the allowance was already granted this month; report what is left.
+  return rows[0]?.pages_left ?? (await balanceOf(accountId));
 }
 
 export class QuotaError extends Error {

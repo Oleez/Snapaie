@@ -10,6 +10,9 @@ plugins {
 val billingLifetime =
     (project.findProperty("snapaie.billing.lifetime.id") as String?) ?: "snapaie_pro_lifetime"
 @Suppress("DEPRECATION")
+val cloudBaseUrl =
+    (project.findProperty("snapaie.cloud.base.url") as String?)?.trim().orEmpty()
+@Suppress("DEPRECATION")
 val modelManifestUrl =
     (project.findProperty("snapaie.model.manifest.url") as String?)?.trim().orEmpty()
 
@@ -28,6 +31,7 @@ android {
         }
         buildConfigField("String", "BILLING_PRODUCT_LIFETIME", "\"$billingLifetime\"")
         buildConfigField("String", "MODEL_MANIFEST_URL", "\"$modelManifestUrl\"")
+        buildConfigField("String", "CLOUD_API_BASE_URL", "\"$cloudBaseUrl\"")
     }
 
     buildTypes {

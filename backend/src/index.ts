@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { config } from './config.js';
 import { chooseSentences, condensePassages, transcribe } from './gemini.js';
 import { requireAuth, issueToken, type AuthedRequest } from './auth.js';
-import { PLAY_NOT_CONFIGURED, verifyPurchase } from './play.js';
+import { FREE_TIER_PAGES, FREE_TIER_PRODUCT, PLAY_NOT_CONFIGURED, verifyPurchase } from './play.js';
 import {
   QuotaError,
   balanceOf,
   consumePages,
+  grantMonthlyAllowance,
   grantPages,
   initQuota,
   refundPages,
@@ -50,6 +51,18 @@ app.post('/v1/auth/session', async (req, res) => {
   }
 
   try {
+    // The free tier is granted against the device id, with nothing to verify. Handled
+    // before Play so a deployment without service-account credentials still works for
+    // everyone who has not paid — which is most people, and the ones a first release
+    // most needs to work for.
+    if (parsed.data.productId === FREE_TIER_PRODUCT) {
+      const accountId = `free:${parsed.data.purchaseToken}`;
+      const pagesLeft = await grantMonthlyAllowance(accountId, FREE_TIER_PAGES, 'free');
+      const token = await issueToken(accountId, 'free');
+      res.json({ token, plan: 'free', pagesLeft });
+      return;
+    }
+
     const purchase = await verifyPurchase(parsed.data.productId, parsed.data.purchaseToken);
     if (!purchase) {
       res.status(402).json({ error: 'purchase_not_valid' });

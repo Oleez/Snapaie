@@ -11,8 +11,31 @@ import { config } from './config.js';
  * verified against Google, here, where the user cannot reach it.
  */
 
+/**
+ * The allowance everyone gets without paying.
+ *
+ * Granted against the hashed device id rather than a purchase, so there is nothing to
+ * verify with Google — which also means it is the one entitlement a determined person can
+ * mint more of, by factory-resetting or spoofing the id. That is a deliberate trade for
+ * having no sign-up wall in front of the best feature, and the reason the global daily
+ * ceiling exists: the worst case is bounded spend, not unbounded.
+ *
+ * 120 pages is roughly two books and a few loose pages, at a cost to serve of a few pence
+ * a month. Cheap enough that ads cover it, big enough to finish something you care about —
+ * which is what actually converts, far more than a taste that runs out mid-chapter.
+ */
+export const FREE_TIER_PRODUCT = 'snapaie_free_monthly';
+export const FREE_TIER_PAGES = 120;
+
 /** What each product grants. The single source of truth for entitlements. */
 export const PRODUCTS: Record<string, { pages: number; plan: string; recurring: boolean }> = {
+  snapaie_starter_monthly: { pages: 1_500, plan: 'starter', recurring: true },
+  snapaie_starter_yearly: { pages: 1_500, plan: 'starter', recurring: true },
+  snapaie_pro_monthly: { pages: 4_000, plan: 'pro', recurring: true },
+  snapaie_pro_yearly: { pages: 4_000, plan: 'pro', recurring: true },
+  snapaie_credits_600: { pages: 600, plan: 'credits', recurring: false },
+  snapaie_credits_1400: { pages: 1_400, plan: 'credits', recurring: false },
+  snapaie_credits_3200: { pages: 3_200, plan: 'credits', recurring: false },
   snapaie_cloud_monthly: { pages: 500, plan: 'cloud_monthly', recurring: true },
   snapaie_cloud_yearly: { pages: 500, plan: 'cloud_yearly', recurring: true },
   snapaie_credits_100: { pages: 100, plan: 'credits', recurring: false },
