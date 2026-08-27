@@ -62,15 +62,15 @@ async function globalPagesToday(): Promise<number> {
   return rows[0]?.pages ?? 0;
 }
 
-async function recordGlobalPage(): Promise<void> {
+async function recordGlobalPages(pages: number): Promise<void> {
   if (!pool) {
-    memory.today.pages += 1;
+    memory.today.pages += pages;
     return;
   }
   await pool.query(
-    `INSERT INTO usage_daily (day, pages) VALUES ($1, 1)
-     ON CONFLICT (day) DO UPDATE SET pages = usage_daily.pages + 1`,
-    [todayKey()],
+    `INSERT INTO usage_daily (day, pages) VALUES ($1, $2)
+     ON CONFLICT (day) DO UPDATE SET pages = usage_daily.pages + EXCLUDED.pages`,
+    [todayKey(), pages],
   );
 }
 
@@ -116,40 +116,47 @@ export class QuotaError extends Error {
  * and the single UPDATE with a `pages_left > 0` guard means two requests racing
  * cannot both win.
  */
-export async function consumePage(accountId: string): Promise<number> {
+export async function consumePages(accountId: string, pages: number): Promise<number> {
   const globalToday = await globalPagesToday();
-  if (globalToday >= config.maxPagesPerDayGlobal) {
+  if (globalToday + pages > config.maxPagesPerDayGlobal) {
     throw new QuotaError('GLOBAL_CAP', 'Cloud Read is at capacity today. Try again tomorrow.');
   }
 
   if (!pool) {
     const account = memory.accounts.get(accountId);
-    if (!account || account.pagesLeft <= 0) {
-      throw new QuotaError('NO_PAGES', 'No Cloud Read pages left.');
+    if (!account || account.pagesLeft < pages) {
+      throw new QuotaError('NO_PAGES', 'Not enough Cloud Read pages left.');
     }
-    account.pagesLeft -= 1;
-    await recordGlobalPage();
+    account.pagesLeft -= pages;
+    await recordGlobalPages(pages);
     return account.pagesLeft;
   }
 
+  // One guarded UPDATE, not a read followed by a write. Two requests arriving together
+  // must not both see the same balance and both succeed — the `pages_left >= $2` clause
+  // is what makes the loser return no rows instead of overdrawing the account.
   const { rows } = await pool.query<{ pages_left: number }>(
-    `UPDATE accounts SET pages_left = pages_left - 1, updated_at = now()
-     WHERE id = $1 AND pages_left > 0
+    `UPDATE accounts SET pages_left = pages_left - $2, updated_at = now()
+     WHERE id = $1 AND pages_left >= $2
      RETURNING pages_left`,
-    [accountId],
+    [accountId, pages],
   );
-  if (rows.length === 0) throw new QuotaError('NO_PAGES', 'No Cloud Read pages left.');
+  if (rows.length === 0) throw new QuotaError('NO_PAGES', 'Not enough Cloud Read pages left.');
 
-  await recordGlobalPage();
+  await recordGlobalPages(pages);
   return rows[0].pages_left;
 }
 
-/** Gives a page back when the work failed through no fault of the user. */
-export async function refundPage(accountId: string): Promise<void> {
+/** Gives pages back when the work failed through no fault of the user. */
+export async function refundPages(accountId: string, pages: number): Promise<void> {
+  if (pages <= 0) return;
   if (!pool) {
     const account = memory.accounts.get(accountId);
-    if (account) account.pagesLeft += 1;
+    if (account) account.pagesLeft += pages;
     return;
   }
-  await pool.query('UPDATE accounts SET pages_left = pages_left + 1 WHERE id = $1', [accountId]);
+  await pool.query('UPDATE accounts SET pages_left = pages_left + $2 WHERE id = $1', [
+    accountId,
+    pages,
+  ]);
 }

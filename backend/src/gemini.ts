@@ -116,3 +116,75 @@ ${numberedSentences}`,
     .map((m) => Number(m[0]))
     .filter((n) => Number.isFinite(n));
 }
+
+/** One passage of a book, and what came back for it. */
+export interface Passage {
+  id: number;
+  text: string;
+  targetWords: number;
+}
+
+export interface CondensedPassage {
+  id: number;
+  prose: string;
+}
+
+/**
+ * Condenses several passages in one request.
+ *
+ * The phone walks a book one passage at a time because it can only hold one at a time.
+ * Copying that granularity over HTTP would make the cloud path slow for no reason —
+ * a five-hundred-page book is about 150 passages, and 150 round trips is minutes of
+ * latency before any work happens. Ten passages a request turns that into fifteen.
+ *
+ * Passages are numbered and the reply is matched back by number rather than by
+ * position, because a model asked for ten answers occasionally returns nine. Losing
+ * one passage should cost that passage, not silently shift every one after it — which
+ * is the failure that would put chapter four's text under chapter three's heading.
+ */
+export async function condensePassages(
+  passages: Passage[],
+  ledger: string,
+  style: string,
+): Promise<CondensedPassage[]> {
+  const blocks = passages
+    .map((p) => `### PASSAGE ${p.id} (target ${p.targetWords} words)
+${p.text}`)
+    .join('\n\n');
+
+  const response = await ai.models.generateContent({
+    model: config.geminiModel,
+    contents: `You are condensing a book, passage by passage, in order.
+
+${ledger ? `What has happened so far:\n${ledger}\n\n` : ''}Retell each passage below shorter, as continuous prose in the book's own voice. Keep
+every event, name and decision. Do not summarise from outside the story, do not add
+headings, and do not comment on what you are doing.
+
+${style}
+
+Return one block per passage, in this exact form and nothing else:
+
+<<<PASSAGE id>>>
+the condensed text
+<<<END>>>
+
+${blocks}`,
+    config: { temperature: 0.3, maxOutputTokens: 8192 },
+  });
+
+  return parsePassages(response.text ?? '');
+}
+
+/** Pulls the delimited blocks back out, keyed by the id the model was given. */
+function parsePassages(raw: string): CondensedPassage[] {
+  const out: CondensedPassage[] = [];
+  const pattern = /<<<PASSAGE\s+(\d+)>>>([\s\S]*?)<<<END>>>/g;
+  for (const match of raw.matchAll(pattern)) {
+    const id = Number(match[1]);
+    const prose = match[2].trim();
+    // A block that came back empty is a passage the model skipped. Dropping it here
+    // lets the caller fall back for that one rather than write a blank chapter.
+    if (Number.isFinite(id) && prose.length > 0) out.push({ id, prose });
+  }
+  return out;
+}

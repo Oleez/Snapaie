@@ -1,10 +1,17 @@
 import express from 'express';
 import { z } from 'zod';
 import { config } from './config.js';
-import { chooseSentences, transcribe } from './gemini.js';
+import { chooseSentences, condensePassages, transcribe } from './gemini.js';
 import { requireAuth, issueToken, type AuthedRequest } from './auth.js';
 import { PLAY_NOT_CONFIGURED, verifyPurchase } from './play.js';
-import { QuotaError, balanceOf, consumePage, grantPages, initQuota, refundPage } from './quota.js';
+import {
+  QuotaError,
+  balanceOf,
+  consumePages,
+  grantPages,
+  initQuota,
+  refundPages,
+} from './quota.js';
 
 const app = express();
 
@@ -90,7 +97,7 @@ app.post('/v1/transcribe', requireAuth, async (req: AuthedRequest, res) => {
 
   let pagesLeft: number;
   try {
-    pagesLeft = await consumePage(accountId);
+    pagesLeft = await consumePages(accountId, 1);
   } catch (error) {
     if (error instanceof QuotaError) {
       res.status(402).json({ error: error.code, message: error.message });
@@ -103,7 +110,7 @@ app.post('/v1/transcribe', requireAuth, async (req: AuthedRequest, res) => {
     const text = await transcribe(parsed.data.imageBase64, parsed.data.mimeType);
     res.json({ text, pagesLeft, readable: text.length > 0 });
   } catch (error) {
-    await refundPage(accountId);
+    await refundPages(accountId, 1);
     console.error('[transcribe] failed', error);
     res.status(502).json({ error: 'transcription_failed' });
   }
@@ -131,7 +138,7 @@ app.post('/v1/condense', requireAuth, async (req: AuthedRequest, res) => {
 
   let pagesLeft: number;
   try {
-    pagesLeft = await consumePage(accountId);
+    pagesLeft = await consumePages(accountId, 1);
   } catch (error) {
     if (error instanceof QuotaError) {
       res.status(402).json({ error: error.code, message: error.message });
@@ -144,8 +151,76 @@ app.post('/v1/condense', requireAuth, async (req: AuthedRequest, res) => {
     const keep = await chooseSentences(parsed.data.numberedSentences, parsed.data.targetWords);
     res.json({ keep, pagesLeft });
   } catch (error) {
-    await refundPage(accountId);
+    await refundPages(accountId, 1);
     console.error('[condense] failed', error);
+    res.status(502).json({ error: 'condense_failed' });
+  }
+});
+
+const batchBody = z.object({
+  passages: z
+    .array(
+      z.object({
+        id: z.number().int().nonnegative(),
+        text: z.string().min(1),
+        targetWords: z.number().int().positive().max(20_000),
+      }),
+    )
+    .min(1)
+    .max(25),
+  ledger: z.string().max(8_000).default(''),
+  style: z.string().max(1_000).default(''),
+  /** Source pages this batch represents, which is what it costs. */
+  pages: z.number().int().positive().max(500),
+});
+
+/**
+ * Condenses many passages of a book in one request.
+ *
+ * This endpoint is the reason a book takes minutes rather than hours. The phone walks a
+ * book one passage at a time because it can only hold one at a time; repeating that over
+ * HTTP would spend the whole saving on round trips.
+ *
+ * Charged per source page, not per request. A batch is not cheaper to serve because it
+ * arrived in one envelope, and pricing it per call would let a client make books free by
+ * batching harder.
+ *
+ * Passages that come back missing are simply absent from the reply rather than blank or
+ * shifted. The caller condenses those itself, so one skipped passage costs that passage
+ * and nothing after it.
+ */
+app.post('/v1/condense/batch', requireAuth, async (req: AuthedRequest, res) => {
+  const parsed = batchBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'bad_request' });
+    return;
+  }
+  const accountId = req.accountId!;
+  const { passages, ledger, style, pages } = parsed.data;
+
+  let pagesLeft: number;
+  try {
+    pagesLeft = await consumePages(accountId, pages);
+  } catch (error) {
+    if (error instanceof QuotaError) {
+      res.status(402).json({ error: error.code, message: error.message });
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    const condensed = await condensePassages(passages, ledger, style);
+    // Give back what was paid for and not delivered, so a half-answered batch is not
+    // charged in full.
+    const missing = passages.length - condensed.length;
+    if (missing > 0) {
+      await refundPages(accountId, Math.round((pages * missing) / passages.length));
+    }
+    res.json({ passages: condensed, pagesLeft: await balanceOf(accountId) });
+  } catch (error) {
+    await refundPages(accountId, pages);
+    console.error('[condense/batch] failed', error);
     res.status(502).json({ error: 'condense_failed' });
   }
 });
