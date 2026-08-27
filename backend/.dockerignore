@@ -1,0 +1,5 @@
+# Only when the build context is backend/ (Root Directory = backend).
+node_modules/
+dist/
+.env
+README.md

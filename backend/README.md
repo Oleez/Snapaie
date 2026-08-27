@@ -19,26 +19,35 @@ can edit.
 
 ## Deploying on Railway
 
-The `Dockerfile` and `railway.json` that build this service live at the **repository root**,
-not in this directory. That looks wrong and is deliberate: Railway looks for them in the
-service's root directory, and this repository's root is an Android app. Left to itself,
-railpack finds `build.gradle.kts` and `gradlew.bat` and fails with *"could not determine how
-to build the app"*. Putting them at the root means no dashboard setting is needed and none
-can be lost.
+There are two Dockerfiles for one service — this directory and the repository root — and
+that is on purpose. Railway looks for a Dockerfile in the service's **Root Directory**, and
+this repository has two defensible answers for what that should be: empty, because the repo
+root is what GitHub connected, or `backend`, because that is where the server lives. Having
+only one meant whichever value the dashboard happened to hold decided whether the build
+worked. Now either does.
 
-1. **Variables** → add the values from `.env.example`. Minimum to boot: `GEMINI_API_KEY` and
-   `JWT_SECRET` (`openssl rand -base64 48`). The service refuses to start without them.
-2. **New → Database → Postgres.** `DATABASE_URL` is injected automatically and the schema
-   creates itself. Without it quota lives in memory and resets on every deploy — do not take
-   real money in that state.
-3. **Settings → Networking → Generate Domain.** A new service is unexposed, so there is
+**Set Root Directory to `backend`.** That gives the service the same shape as any ordinary
+Node repo: the service root *is* the server.
+
+1. **Settings → Source → Root Directory** → `backend`
+2. **Settings → Build → Builder** → must say **Dockerfile**. After a run of failed builds
+   Railway may have pinned the service to Railpack, and a pinned builder ignores
+   `railway.json` — this is the setting most likely to still be wrong.
+3. **Variables** → from `.env.example`. Minimum to boot: `GEMINI_API_KEY` and `JWT_SECRET`
+   (`openssl rand -base64 48`). The service refuses to start without them.
+4. **New → Database → Postgres.** `DATABASE_URL` is injected and the schema creates itself.
+   Without it quota is in memory and resets on every deploy — do not take real money then.
+5. **Settings → Networking → Generate Domain.** A new service is unexposed, so there is
    nothing to curl until you do this.
-4. Check it: `curl https://<your-domain>/healthz`
+6. `curl https://<your-domain>/healthz`
 
-Leave **Root Directory** empty. Setting it to `backend` also works, but then Railway looks
-for a Dockerfile in here and there isn't one.
+A successful build shows Docker layers in the log. If it still prints `railpack prepare` and
+lists `build.gradle.kts`, Railway is reading the Android project and the Root Directory did
+not take.
 
 Then set `snapaie.cloud.base.url` in `gradle.properties` to that domain.
+
+If you edit one Dockerfile, edit the other. They differ only in the `COPY` paths.
 
 ## Endpoints
 
