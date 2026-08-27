@@ -32,14 +32,16 @@ data class CondensedBeat(
 class BeatCondenser(
     private val sessionManager: TextGenerator,
     private val promptLibrary: PromptSource,
-) {
+) : PassageCondenser {
 
-    suspend fun condense(
+    override fun isReady(): Boolean = sessionManager.isModelInstalled()
+
+    override suspend fun condense(
         sourceText: String,
         ledger: StoryLedger,
         previousTail: String,
         budgetWords: Int,
-        onToken: (String) -> Unit = {},
+        onToken: (String) -> Unit,
     ): CondensedBeat {
         // First, try to shorten the beat by cutting sentences rather than rewriting them.
         // A retelling is a summary wearing the book's clothes; an abridgement is the book,

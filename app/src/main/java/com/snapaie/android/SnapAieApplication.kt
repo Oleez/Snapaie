@@ -13,6 +13,7 @@ import com.snapaie.android.data.book.BookStorage
 import com.snapaie.android.data.ingest.EpubIngestor
 import com.snapaie.android.data.ingest.PdfIngestor
 import com.snapaie.android.domain.condense.BeatCondenser
+import com.snapaie.android.domain.condense.CloudPassageCondenser
 import com.snapaie.android.domain.condense.CondensePipeline
 import com.snapaie.android.domain.output.BookExporter
 import com.snapaie.android.domain.scan.PromptLibrary
@@ -22,6 +23,7 @@ import com.snapaie.android.data.ai.download.ModelDownloadController
 import com.snapaie.android.data.ai.download.ModelDownloader
 import com.snapaie.android.data.ai.model.ModelManifestRepository
 import com.snapaie.android.data.ai.model.ModelRegistry
+import com.snapaie.android.data.cloud.CloudClient
 import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.local.MIGRATION_1_2
 import com.snapaie.android.data.local.MIGRATION_2_3
@@ -101,6 +103,7 @@ class SnapAieApplication : Application() {
 
         val bookStorage = BookStorage(applicationContext)
         val promptLibrary = PromptLibrary(applicationContext)
+        val cloudClient = CloudClient(applicationContext, httpClient)
 
         val bookRepository = BookRepository(
             storage = bookStorage,
@@ -114,7 +117,13 @@ class SnapAieApplication : Application() {
             repository = bookRepository,
             storage = bookStorage,
             bookDao = database.bookDao(),
-            condenser = BeatCondenser(sessionManager, promptLibrary),
+            // Cloud when it is configured and in credit, the phone otherwise. The
+            // wrapper decides per batch, so a book that runs out of credit halfway
+            // finishes on the device rather than stopping.
+            condenser = CloudPassageCondenser(
+                cloud = cloudClient,
+                local = BeatCondenser(sessionManager, promptLibrary),
+            ),
             sessionManager = sessionManager,
         )
 

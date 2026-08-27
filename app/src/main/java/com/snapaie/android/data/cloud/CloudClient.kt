@@ -32,6 +32,25 @@ sealed interface CloudResult<out T> {
 }
 
 /**
+ * What the book pipeline needs from Cloud Read.
+ *
+ * Narrow on purpose, and separate from [CloudClient] so the fallback behaviour can be
+ * tested without a server. The behaviour that matters here is entirely about failure —
+ * credit running out, no signal, a passage skipped — and none of it is reachable in a test
+ * that needs a real backend to be down in a particular way.
+ */
+interface CloudCondenseApi {
+    val isConfigured: Boolean
+
+    suspend fun condenseBatch(
+        passages: List<CloudPassage>,
+        ledger: String,
+        style: String,
+        pages: Int,
+    ): CloudResult<List<CloudCondensed>>
+}
+
+/**
  * Talks to Cloud Read.
  *
  * Exists because a phone cannot condense a five-hundred-page book in a time anyone will
@@ -46,7 +65,7 @@ class CloudClient(
     private val context: Context,
     baseClient: OkHttpClient,
     private val baseUrl: String = BuildConfig.CLOUD_API_BASE_URL,
-) {
+) : CloudCondenseApi {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -57,7 +76,7 @@ class CloudClient(
         .build()
 
     /** False when this build has no backend configured; the UI hides cloud entirely. */
-    val isConfigured: Boolean
+    override val isConfigured: Boolean
         get() = baseUrl.startsWith("https://", ignoreCase = true)
 
     @Volatile
@@ -107,7 +126,7 @@ class CloudClient(
     }
 
     /** Condenses many passages at once. [pages] is what it costs, in source pages. */
-    suspend fun condenseBatch(
+    override suspend fun condenseBatch(
         passages: List<CloudPassage>,
         ledger: String,
         style: String,

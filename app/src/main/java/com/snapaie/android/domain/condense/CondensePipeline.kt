@@ -43,7 +43,7 @@ class CondensePipeline(
     private val repository: BookRepository,
     private val storage: BookStorage,
     private val bookDao: BookDao,
-    private val condenser: BeatCondenser,
+    private val condenser: PassageCondenser,
     private val sessionManager: ModelSessionManager,
 ) {
 
@@ -53,8 +53,11 @@ class CondensePipeline(
     ): CondenseOutcome {
         val book = bookDao.getBook(bookId) ?: return CondenseOutcome.Failed("That book is gone.")
         val job = repository.latestJob(bookId) ?: return CondenseOutcome.NothingToDo
-        if (!sessionManager.isModelInstalled()) {
-            return CondenseOutcome.Failed("The offline model is not installed yet.")
+        // Asks the condenser, not the engine. A cloud run needs no local model, and
+        // gating on one meant a book could not be condensed by the very thing that
+        // condenses books quickly.
+        if (!condenser.isReady()) {
+            return CondenseOutcome.Failed("Turn on offline AI, or connect Cloud Read, to shorten a book.")
         }
 
         val pass = job.pass
@@ -85,6 +88,22 @@ class CondensePipeline(
                     beat.srcEndChar.coerceIn(0, text.length),
                 )
                 val budget = governor.budgetFor(beat.srcWords)
+                // What is coming next, so a cloud condenser can put several passages in one
+                // request instead of one round trip each. A local condenser ignores it.
+                condenser.setLookahead { limit ->
+                    bookDao.getBeats(bookId, pass)
+                        .asSequence()
+                        .filter { it.status == BeatStatus.PENDING.name && it.id != beat.id }
+                        .sortedBy { it.orderIndex }
+                        .take(limit)
+                        .map {
+                            text.substring(
+                                it.srcStartChar.coerceIn(0, text.length),
+                                it.srcEndChar.coerceIn(0, text.length),
+                            )
+                        }
+                        .toList()
+                }
                 val result = condenser.condense(
                     sourceText = source,
                     ledger = ledger,
