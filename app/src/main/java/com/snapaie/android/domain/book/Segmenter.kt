@@ -45,7 +45,18 @@ object Segmenter {
      * token context LiteRT-LM actually runs a 2B model at — the 128K figure in the model
      * card describes the architecture, not the runtime configuration.
      */
-    const val DEFAULT_BEAT_WORDS = 900
+    /**
+     * Source words per beat, and therefore per model call.
+     *
+     * This was 900, set when the context window was smaller. The window holds about 9,200
+     * characters of source for the condense prompt, so 900 words used barely half of it and
+     * bought an extra model call for every beat — and per-call overhead, not prefill, is
+     * what a long book pays over and over.
+     *
+     * 1,400 words is roughly 8,400 characters: most of the window, with room left for the
+     * ledger and the previous tail. It cuts the number of calls in a full book by a third.
+     */
+    const val DEFAULT_BEAT_WORDS = 1_400
 
     /** Below this a trailing fragment is merged back rather than left as its own beat. */
     private const val MIN_TAIL_WORDS = 120

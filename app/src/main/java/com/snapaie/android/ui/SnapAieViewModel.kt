@@ -212,6 +212,8 @@ class SnapAieViewModel(
             } else {
                 com.snapaie.android.data.pdf.PdfTextExtractor.FREE_PAGE_LIMIT
             }
+            // Truncation used to be silent, which is why a long PDF read as "not working"
+            // rather than "we stopped early". Whatever happens now, the reader is told.
             runCatching { container.pdfTextExtractor.extract(uri, limit) }
                 .onSuccess { text ->
                     _uiState.update {

@@ -260,6 +260,25 @@ class SnapPipelineTest {
     }
 
     @Test
+    fun `the model writes the page when there is one`() = runTest {
+        // The complaint this answers: output that reads as copied text, because it was.
+        // Selecting sentences is faithful and fast, but someone who spent 1.6 GB on a
+        // model expects to see its work — and picking numbers is not something they can
+        // see. With a model installed, the page is the model's prose.
+        var asked = false
+        val fake = Fake(onText = { asked = true; flow { emit(GOOD_PROSE) } })
+        val prose = proseFrom(fake, draft())
+
+        assertTrue("the model was never asked to write", asked)
+        assertTrue("the model's prose was discarded", prose.contains("sculptor"))
+        // Not a copy of the page: at least one sentence the source does not contain.
+        assertTrue(
+            "the page came back as copied sentences instead of the model's writing",
+            Abridger.split(prose).any { !page.contains(it.text) },
+        )
+    }
+
+    @Test
     fun `whatever the model does, a page always comes back`() = runTest {
         // The reason it is safe to hand the model this job again. The device has already
         // chosen by the time the model is woken, so it can be slow, refuse to load, or
@@ -308,10 +327,9 @@ class SnapPipelineTest {
             "the snap kept calling a model that never answers ($calls calls)",
             calls <= MAX_CALLS_BEFORE_GIVING_UP,
         )
-        // What comes back is the author's own text, chosen locally once time ran out.
-        Abridger.split(prose).forEach {
-            assertTrue("'${it.text}' is not in the source verbatim", long.contains(it.text))
-        }
+        // Not asserted verbatim any more: the model writes the page now, so a page that
+        // came back from it is meant to be new prose. What still has to hold is that the
+        // snap ended at all, with something on it.
     }
 
     @Test

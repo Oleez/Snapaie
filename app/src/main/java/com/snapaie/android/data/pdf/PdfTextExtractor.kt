@@ -64,8 +64,19 @@ class PdfTextExtractor(
     }.getOrNull()
 
     companion object {
-        const val FREE_PAGE_LIMIT = 5
-        const val PRO_PAGE_LIMIT = 60
+        /**
+         * How much of a PDF is read.
+         *
+         * These were 5 and 60, which made every real book look broken: a novel imported at
+         * five pages and stopped, with nothing on screen to say a limit had been hit. An
+         * app that promises to shorten a five-hundred-page book cannot refuse to open one.
+         *
+         * The free tier is still a taste rather than the whole thing, but it is now enough
+         * pages to be a chapter instead of a fragment — and Pro has no ceiling worth
+         * hitting, because the point of Pro is the whole book.
+         */
+        const val FREE_PAGE_LIMIT = 40
+        const val PRO_PAGE_LIMIT = 5_000
         private const val RENDER_WIDTH = 1240
     }
 }

@@ -306,22 +306,13 @@ class WorkflowEngine(
         val budget = budgetFor(sourceWords, draft.mode.condenseRatio)
         val budgetTokens = budget * 2 + 80
 
-        // 2. Abridge the recognised text: keep the author's sentences, drop the rest.
+        // 1. The model writes the page.
         //
-        //    No model, and none needed. Shortening is deletion, deciding what to delete is
-        //    a ranking problem, and the device answers it in under a millisecond. This is
-        //    the path almost every snap takes, which is why a snap no longer waits for
-        //    anything to load, cannot time out, and works on a phone with nothing
-        //    downloaded. Only styles that must be *written* — a list, an analogy — go on
-        //    to ask a model, and only if there is one.
-        if (draft.mode.canAbridge && source.length >= MIN_PROSE_SOURCE_CHARS) {
-            val abridged = abridge(source, budget, deadline, onToken)
-            if (abridged.isNotBlank() && !BeatContract.isRuntimeNoise(abridged)) {
-                return ProseAttempt(abridged, null)
-            }
-        }
-
-        // 3. Ask for a retelling instead, for pages where deletion alone reads badly.
+        //    This is what the download is for. Selecting sentences on-device is fast and
+        //    faithful, but what it produces is the page with parts removed — which reads
+        //    as copied text, because it is copied text. Someone who spent 1.6 GB expects
+        //    the model to have done something, and picking numbers is not something they
+        //    can see. So when there is a model, it writes.
         if (source.length >= MIN_PROSE_SOURCE_CHARS &&
             sessionManager.isModelInstalled() &&
             !deadline.expired
@@ -336,9 +327,23 @@ class WorkflowEngine(
             reason = raw.timeoutReason ?: reason ?: "The result did not come back as a retelling."
         }
 
-        // 3. Something imperfect beats nothing. Rejection means it read as a summary or
-        //    came back short — both still more use to a reader than an empty panel.
+        // 2. Keep the model's work even when it broke a rule.
+        //
+        //    Before falling back to deletion, take whatever the model actually wrote. A
+        //    retelling rejected for running long or reading like a summary is still the
+        //    model's prose, and still closer to what was asked for than a cut-down copy.
         if (best.length >= MIN_KEEPABLE_PROSE_CHARS) return ProseAttempt(best, null)
+
+        // 3. No model, or nothing usable from it: shorten by deletion instead.
+        //
+        //    Instant, and every surviving sentence is the author's own, so a page always
+        //    comes back. This is the floor, not the plan.
+        if (draft.mode.canAbridge && source.length >= MIN_PROSE_SOURCE_CHARS) {
+            val abridged = abridge(source, budget, deadline, onToken)
+            if (abridged.isNotBlank() && !BeatContract.isRuntimeNoise(abridged)) {
+                return ProseAttempt(abridged, null)
+            }
+        }
 
         // 4. A list or an analogy has to be written, and there is nothing here to write it.
         //    The page is still shortened rather than refused: someone who asked for bullets
