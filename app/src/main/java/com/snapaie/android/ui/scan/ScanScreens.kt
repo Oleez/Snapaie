@@ -69,6 +69,7 @@ import com.snapaie.android.data.local.KnowledgeScan
 import com.snapaie.android.data.model.CefrVocab
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
+import com.snapaie.android.data.model.ProducedBy
 import com.snapaie.android.data.ai.download.ModelDownloadState
 import com.snapaie.android.data.ai.download.ModelDownloadStatus
 import com.snapaie.android.data.ai.model.ModelUpdateStatus
@@ -513,6 +514,7 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
                         prose = current.result.condensedProse,
                         wordsIn = current.wordsIn,
                         wordsOut = current.wordsOut,
+                        producedBy = current.result.producedBy,
                     )
                 }
             }
@@ -633,7 +635,13 @@ private fun MetricPill(value: String, label: String) {
  * point is that it should feel like something written rather than something returned.
  */
 @Composable
-private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int) {
+private fun ProsePage(
+    title: String,
+    prose: String,
+    wordsIn: Int,
+    wordsOut: Int,
+    producedBy: ProducedBy = ProducedBy.UNKNOWN,
+) {
     val paragraphs = BookContentBuilder.paragraphsOf(prose)
     PaperSheet {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -644,6 +652,18 @@ private fun ProsePage(title: String, prose: String, wordsIn: Int, wordsOut: Int)
                     fontWeight = FontWeight.SemiBold,
                 ),
             )
+            // Says which engine wrote this. A page the model wrote and a page assembled
+            // from the author's own sentences look equally finished, so without this a
+            // model that never ran is indistinguishable from one that writes like that.
+            if (producedBy != ProducedBy.UNKNOWN) {
+                Text(
+                    producedBy.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = LocalContentColor.current.copy(
+                        alpha = if (producedBy == ProducedBy.ON_DEVICE) 0.85f else 0.55f,
+                    ),
+                )
+            }
             HorizontalDivider(color = LocalContentColor.current.copy(alpha = 0.14f))
 
             paragraphs.forEachIndexed { index, paragraph ->

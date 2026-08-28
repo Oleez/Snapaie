@@ -5,6 +5,7 @@ import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.model.PhaseUpdate
+import com.snapaie.android.data.model.ProducedBy
 import com.snapaie.android.data.model.ScanPhase
 import com.snapaie.android.domain.book.Segmenter
 import com.snapaie.android.domain.condense.Abridger
@@ -83,10 +84,11 @@ class WorkflowEngine(
             ),
         )
 
+        val producedBy = if (attempt.prose.isNotBlank()) attempt.producedBy else ProducedBy.ON_DEVICE
         val result = if (prose.isNotBlank()) {
             // The cheap, honest parts computed locally rather than asked for: no second
             // round trip, and nothing the model could invent.
-            parser.heuristicOnly(draft).copy(condensedProse = prose)
+            parser.heuristicOnly(draft).copy(condensedProse = prose, producedBy = producedBy)
         } else {
             parser.heuristicOnly(draft)
         }
@@ -250,7 +252,11 @@ class WorkflowEngine(
     }
 
     /** The retelling, plus why it is missing when it is. */
-    private data class ProseAttempt(val prose: String, val reason: String?)
+    private data class ProseAttempt(
+        val prose: String,
+        val reason: String?,
+        val producedBy: ProducedBy = ProducedBy.ON_DEVICE,
+    )
 
     /**
      * Retells the page shorter.
@@ -322,7 +328,9 @@ class WorkflowEngine(
                 materialFor(source, template, budgetTokens, deadline, onToken)
             val raw = streamOnce(textPrompt, budgetTokens, deadline, onToken)
             val prose = BeatContract.cleanProse(raw.text)
-            if (accepted(prose, source, budget, draft.mode)) return ProseAttempt(prose, null)
+            if (accepted(prose, source, budget, draft.mode)) {
+                return ProseAttempt(prose, null, ProducedBy.OFFLINE_AI)
+            }
             if (prose.length > best.length && !BeatContract.isRuntimeNoise(prose)) best = prose
             reason = raw.timeoutReason ?: reason ?: "The result did not come back as a retelling."
         }
@@ -332,7 +340,7 @@ class WorkflowEngine(
         //    Before falling back to deletion, take whatever the model actually wrote. A
         //    retelling rejected for running long or reading like a summary is still the
         //    model's prose, and still closer to what was asked for than a cut-down copy.
-        if (best.length >= MIN_KEEPABLE_PROSE_CHARS) return ProseAttempt(best, null)
+        if (best.length >= MIN_KEEPABLE_PROSE_CHARS) return ProseAttempt(best, null, ProducedBy.OFFLINE_AI)
 
         // 3. No model, or nothing usable from it: shorten by deletion instead.
         //

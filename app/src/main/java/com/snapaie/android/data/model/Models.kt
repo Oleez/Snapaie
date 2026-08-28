@@ -101,6 +101,21 @@ enum class ScanPhase(val label: String) {
     ClarityCheck("Clarity check"),
 }
 
+/** Which engine produced a shorter version. */
+@Serializable
+enum class ProducedBy(val label: String) {
+    /** The downloaded model wrote it. */
+    OFFLINE_AI("Written by offline AI"),
+
+    /** Cloud Read wrote it. */
+    CLOUD_AI("Written by Cloud Read"),
+
+    /** No model available or usable, so the page was shortened by cutting sentences. */
+    ON_DEVICE("Shortened on this device — the AI did not run"),
+
+    UNKNOWN(""),
+}
+
 @Serializable
 data class KnowledgeResult(
     /**
@@ -125,6 +140,15 @@ data class KnowledgeResult(
     val cefrVocabulary: CefrVocab? = null,
     val plainTextFallback: String = "",
     val styleUsed: String = "",
+    /**
+     * What actually produced [condensedProse].
+     *
+     * Recorded because the alternatives are indistinguishable on screen. A page the model
+     * wrote and a page assembled from the author's own sentences look equally finished, so
+     * a model that failed to load, timed out, or had its reply rejected reads as a model
+     * that simply writes like that. Without this the only way to tell was to read the code.
+     */
+    val producedBy: ProducedBy = ProducedBy.UNKNOWN,
 ) {
     val isPlainTextOnly: Boolean
         get() = plainTextFallback.isNotBlank() &&
