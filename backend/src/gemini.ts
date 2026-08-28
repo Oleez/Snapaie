@@ -57,7 +57,7 @@ function cleanTranscription(raw: string): string {
 /** Transcribes one page image. Returns '' when the reply was not a transcription. */
 export async function transcribe(imageBase64: string, mimeType: string): Promise<string> {
   const response = await ai.models.generateContent({
-    model: config.geminiModel,
+    model: config.geminiTranscribeModel,
     contents: [
       {
         role: 'user',
@@ -90,7 +90,7 @@ export async function chooseSentences(
   targetWords: number,
 ): Promise<number[]> {
   const response = await ai.models.generateContent({
-    model: config.geminiModel,
+    model: config.geminiCondenseModel,
     contents: `You are abridging a document. You do not rewrite it — you decide what to cut.
 
 Below are its numbered sentences. Choose which to KEEP so the result runs to roughly
@@ -153,7 +153,7 @@ ${p.text}`)
     .join('\n\n');
 
   const response = await ai.models.generateContent({
-    model: config.geminiModel,
+    model: config.geminiCondenseModel,
     contents: `You are condensing a book, passage by passage, in order.
 
 ${ledger ? `What has happened so far:\n${ledger}\n\n` : ''}Retell each passage below shorter, as continuous prose in the book's own voice. Keep

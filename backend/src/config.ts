@@ -33,8 +33,32 @@ export const config = {
 
   geminiApiKey: requiredOrMissing('GEMINI_API_KEY', missing),
 
-  /** Cheapest model that reads images. Overridable so a price change is a variable, not a deploy. */
-  geminiModel: optional('GEMINI_MODEL', 'gemini-3.5-flash-lite'),
+  /**
+   * Condensing a book. The cheapest model there is, deliberately.
+   *
+   * This is where the money goes and nowhere else. A five-hundred-page book is about
+   * 200,000 tokens in and 60,000 out, so cost here is set almost entirely by the input
+   * price — and 2.5-flash-lite is a third the input price of 3.5-flash-lite and a sixth
+   * the output price. Same book: 4.4 cents against 21.
+   *
+   * The job is also the forgiving one. Choosing which sentences carry a passage is not
+   * where a bigger model earns its keep, and the app keeps its own floor underneath: a
+   * poor reply is rejected and the passage is condensed on the phone instead.
+   */
+  geminiCondenseModel: optional('GEMINI_MODEL_CONDENSE', 'gemini-2.5-flash-lite'),
+
+  /**
+   * Reading a photograph. A better model, because this is where being wrong is expensive.
+   *
+   * Handwriting misread is worse than handwriting unread: the mistake is invisible, and
+   * everything downstream then condenses it confidently. Nobody sees the original again.
+   *
+   * It costs almost nothing to be careful here. One page is about a thousand tokens, so
+   * even the strongest Flash model is a quarter of a penny — against 4.4 cents for the
+   * book it belongs to. Paying three times as much for accuracy on the one step that
+   * cannot self-correct is the easiest trade in the service.
+   */
+  geminiTranscribeModel: optional('GEMINI_MODEL_TRANSCRIBE', 'gemini-3.1-flash-lite'),
 
   jwtSecret: requiredOrMissing('JWT_SECRET', missing),
 

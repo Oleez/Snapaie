@@ -34,7 +34,7 @@ app.get('/healthz', (_req, res) => {
     // Named, because "Healthcheck failure" tells an operator nothing and this is the
     // one place they are certain to look.
     missing: missingConfig,
-    model: config.geminiModel,
+    models: { condense: config.geminiCondenseModel, transcribe: config.geminiTranscribeModel },
     quota: config.databaseUrl ? 'postgres' : 'memory',
     purchases: config.playServiceAccountJson ? 'verified' : 'not configured',
   });
@@ -270,7 +270,9 @@ app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 async function main(): Promise<void> {
   await initQuota();
   app.listen(config.port, () => {
-    console.log(`[snapaie] listening on ${config.port}, model ${config.geminiModel}`);
+    console.log(
+      `[snapaie] listening on ${config.port} · condense ${config.geminiCondenseModel} · transcribe ${config.geminiTranscribeModel}`,
+    );
     if (!isFullyConfigured) {
       console.warn(
         `[snapaie] NOT USABLE YET. Missing: ${missingConfig.join(', ')}. ` +
