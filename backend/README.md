@@ -45,6 +45,12 @@ A successful build shows Docker layers in the log. If it still prints `railpack 
 lists `build.gradle.kts`, Railway is reading the Android project and the Root Directory did
 not take.
 
+**"Healthcheck failure" is not a build failure.** Railway marks the whole deployment Failed
+and the card says "Build failed", but the stage list tells the truth: if Build and Deploy
+are ticked, the image is fine and the container is the problem. Ask `/healthz` — it names
+any variable that is missing. The service starts without them on purpose, so that answer is
+reachable instead of buried in a crash loop.
+
 Then set `snapaie.cloud.base.url` in `gradle.properties` to that domain.
 
 If you edit one Dockerfile, edit the other. They differ only in the `COPY` paths.

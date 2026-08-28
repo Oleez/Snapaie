@@ -1,6 +1,6 @@
 import express from 'express';
 import { z } from 'zod';
-import { config } from './config.js';
+import { config, isFullyConfigured, missingConfig } from './config.js';
 import { chooseSentences, condensePassages, transcribe } from './gemini.js';
 import { requireAuth, issueToken, type AuthedRequest } from './auth.js';
 import { FREE_TIER_PAGES, FREE_TIER_PRODUCT, PLAY_NOT_CONFIGURED, verifyPurchase } from './play.js';
@@ -28,8 +28,35 @@ app.use(express.json({ limit: '12mb' }));
  * that was fine.
  */
 app.get('/healthz', (_req, res) => {
-  res.json({ ok: true, model: config.geminiModel, quota: config.databaseUrl ? 'postgres' : 'memory' });
+  res.json({
+    ok: true,
+    configured: isFullyConfigured,
+    // Named, because "Healthcheck failure" tells an operator nothing and this is the
+    // one place they are certain to look.
+    missing: missingConfig,
+    model: config.geminiModel,
+    quota: config.databaseUrl ? 'postgres' : 'memory',
+    purchases: config.playServiceAccountJson ? 'verified' : 'not configured',
+  });
 });
+
+/**
+ * Refuses anything that needs a variable we do not have.
+ *
+ * Ahead of auth deliberately: a caller who cannot be served at all should be told why
+ * rather than told their token is bad, which sends them looking in the wrong place.
+ */
+function requireConfigured(_req: express.Request, res: express.Response, next: express.NextFunction): void {
+  if (isFullyConfigured) {
+    next();
+    return;
+  }
+  res.status(503).json({
+    error: 'not_configured',
+    message: `Cloud Read is not set up yet. Missing: ${missingConfig.join(', ')}.`,
+    missing: missingConfig,
+  });
+}
 
 const sessionBody = z.object({
   productId: z.string().min(1),
@@ -43,7 +70,7 @@ const sessionBody = z.object({
  * This is also where pages are granted, so a replayed token tops up the same account
  * it already belongs to rather than minting a new balance.
  */
-app.post('/v1/auth/session', async (req, res) => {
+app.post('/v1/auth/session', requireConfigured, async (req, res) => {
   const parsed = sessionBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'bad_request' });
@@ -100,7 +127,7 @@ const transcribeBody = z.object({
  * a page. The one case that deliberately does *not* refund is a reply that came back
  * fine but was not a transcription: the work was done and paid for either way.
  */
-app.post('/v1/transcribe', requireAuth, async (req: AuthedRequest, res) => {
+app.post('/v1/transcribe', requireConfigured, requireAuth, async (req: AuthedRequest, res) => {
   const parsed = transcribeBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'bad_request' });
@@ -141,7 +168,7 @@ const condenseBody = z.object({
  * so nothing this endpoint says can end up in front of a reader as the author's
  * words — the worst a bad reply can do is choose badly, and the app can see that.
  */
-app.post('/v1/condense', requireAuth, async (req: AuthedRequest, res) => {
+app.post('/v1/condense', requireConfigured, requireAuth, async (req: AuthedRequest, res) => {
   const parsed = condenseBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'bad_request' });
@@ -202,7 +229,7 @@ const batchBody = z.object({
  * shifted. The caller condenses those itself, so one skipped passage costs that passage
  * and nothing after it.
  */
-app.post('/v1/condense/batch', requireAuth, async (req: AuthedRequest, res) => {
+app.post('/v1/condense/batch', requireConfigured, requireAuth, async (req: AuthedRequest, res) => {
   const parsed = batchBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: 'bad_request' });
@@ -244,12 +271,19 @@ async function main(): Promise<void> {
   await initQuota();
   app.listen(config.port, () => {
     console.log(`[snapaie] listening on ${config.port}, model ${config.geminiModel}`);
+    if (!isFullyConfigured) {
+      console.warn(
+        `[snapaie] NOT USABLE YET. Missing: ${missingConfig.join(', ')}. ` +
+          'Add them in Railway → Variables. /healthz will say the same.',
+      );
+    }
   });
 }
 
 main().catch((error) => {
-  // Refusing to start beats starting broken. A service that boots without its
-  // configuration only fails later, in front of someone who paid.
+  // Only a genuine startup fault reaches here now — a port already taken, a database
+  // that will not answer. Missing configuration no longer kills the process, because a
+  // crash loop hides the reason behind "Healthcheck failure".
   console.error('[snapaie] failed to start:', error instanceof Error ? error.message : error);
   process.exit(1);
 });
