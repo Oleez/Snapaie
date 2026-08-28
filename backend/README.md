@@ -49,6 +49,27 @@ Then set `snapaie.cloud.base.url` in `gradle.properties` to that domain.
 
 If you edit one Dockerfile, edit the other. They differ only in the `COPY` paths.
 
+## Where the secrets live, and why Railway
+
+Railway and Supabase are not competing for this job.
+
+Railway **runs the server**. Supabase is a **Postgres database** with auth and storage
+attached. The Gemini key has to live in whatever process makes the Gemini call, so it goes
+in Railway's variables either way — Supabase has nowhere to put it unless you move the whole
+server into Edge Functions.
+
+So the split worth making is: Railway for the service, and either Railway's Postgres plugin
+or Supabase for the data. Railway's plugin is one click and injects `DATABASE_URL` for you.
+Supabase is worth choosing if you want one database across your projects, or its auth later
+— which you will, when device ids stop being enough.
+
+Either works unchanged. `DATABASE_URL` is a standard Postgres URL, and SSL is turned on
+automatically for anything that is not local, because managed providers refuse an
+unencrypted connection and say so unhelpfully when they do.
+
+What must never happen is the key reaching the app. An APK is a zip file on someone's
+phone; a key inside one is a key you have published.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |

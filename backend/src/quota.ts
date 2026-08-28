@@ -42,7 +42,26 @@ export async function initQuota(): Promise<void> {
     );
     return;
   }
-  pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5 });
+  /*
+   * SSL for anything that is not local.
+   *
+   * Railway's own Postgres sits on a private network and needs none. Supabase, Neon and
+   * every other managed provider refuse an unencrypted connection outright, and the
+   * failure arrives as a bare "connection terminated" that says nothing about SSL — so
+   * this is decided here rather than left to whoever pastes the URL.
+   *
+   * rejectUnauthorized is false because these providers present certificates signed by
+   * their own authorities. It is the standard arrangement for a managed database and it
+   * still encrypts the connection; what it gives up is proving which server answered,
+   * over a link that is already private between two machines we control.
+   */
+  const url = config.databaseUrl;
+  const isLocal = /@(localhost|127\.0\.0\.1|::1|postgres\.railway\.internal)/i.test(url);
+  pool = new pg.Pool({
+    connectionString: url,
+    max: 5,
+    ssl: isLocal ? undefined : { rejectUnauthorized: false },
+  });
   await pool.query(SCHEMA);
   console.log('[quota] Postgres ready.');
 }
