@@ -231,8 +231,8 @@ private fun ModelOnboardingStep(
             }
         }
 
-        modelState.ramWarning?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        modelState.deviceCompatibility?.let {
+            Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
 
         if (spec != null && !modelState.isModelInstalled && !download.status.isActive) {

@@ -126,6 +126,14 @@ Qwen 2.5 1.5B Instruct, Apache-2.0, in LiteRT-LM's `.litertlm` format — one bu
 `Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm`, with a 4096-token window that
 matches what the app asks for.
 
+The app recommends a phone with 8 GB RAM for reliable use. Lower-memory phones can still
+try this model, but may fail when other apps are using memory; total RAM is only a guide,
+not a compatibility guarantee. Settings records model-load failures with the device,
+backend and memory details needed to diagnose them, without recording page or chat content.
+Smaller model files are not automatically compatible: the app currently loads LiteRT-LM
+`.litertlm` artifacts, while the published Qwen 2.5 0.5B quantized artifact is `.task` and
+targets a different runtime interface.
+
 From <https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct> — not gated, no token
 needed. Weights are never committed and never bundled in the APK.
 

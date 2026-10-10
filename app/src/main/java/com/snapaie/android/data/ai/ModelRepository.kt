@@ -26,7 +26,7 @@ data class ModelUiState(
     val updateStatus: ModelUpdateStatus = ModelUpdateStatus.NotConfigured,
     val download: ModelDownloadState = ModelDownloadState(),
     val isCheckingManifest: Boolean = false,
-    val ramWarning: String? = null,
+    val deviceCompatibility: String? = null,
 ) {
     /** True once a verified model is on disk — inference can run fully offline. */
     val isModelInstalled: Boolean get() = installed != null
@@ -86,7 +86,7 @@ class ModelRepository(
         val installed = registry.activeRecord()
         _state.value = _state.value.copy(
             installed = installed,
-            ramWarning = ramWarning(),
+            deviceCompatibility = compatibilityMessage(_state.value.updateStatus, installed),
         )
     }
 
@@ -104,6 +104,7 @@ class ModelRepository(
         _state.value = _state.value.copy(
             updateStatus = status,
             installed = registry.activeRecord(),
+            deviceCompatibility = compatibilityMessage(status, registry.activeRecord()),
             isCheckingManifest = false,
         )
         // Let the controller reattach to any partial download for the offered artifact.
@@ -178,13 +179,19 @@ class ModelRepository(
         refreshLocal()
     }
 
-    private fun ramWarning(): String? {
-        val totalGb = totalRamGb()
-        return if (totalGb < MIN_COMFORTABLE_RAM_GB) {
-            "This device reports about $totalGb GB RAM. On-device AI may be slow or unstable here."
-        } else {
-            null
-        }
+    private fun compatibilityMessage(
+        status: ModelUpdateStatus,
+        installed: InstalledModel?,
+    ): String? {
+        val recommendedRamGb = when (status) {
+            is ModelUpdateStatus.FirstInstallAvailable -> status.spec.recommendedRamGb
+            is ModelUpdateStatus.UpdateAvailable -> status.spec.recommendedRamGb
+            else -> installed?.recommendedRamGb
+        } ?: return null
+        return com.snapaie.android.data.ai.model.ModelCompatibilityMessage.describe(
+            deviceRamGb = totalRamGb(),
+            recommendedRamGb = recommendedRamGb,
+        )
     }
 
     private fun totalRamGb(): Int {
@@ -194,12 +201,4 @@ class ModelRepository(
         return (memoryInfo.totalMem / 1_000_000_000L).toInt().coerceAtLeast(1)
     }
 
-    private companion object {
-        /**
-         * Set for a 2.4 GB model. The offline model is 1.6 GB and text-only now, so it
-         * fits comfortably where the old one did not — warning a 3 GB phone off it would
-         * be warning it away from something that works.
-         */
-        const val MIN_COMFORTABLE_RAM_GB = 3
-    }
 }

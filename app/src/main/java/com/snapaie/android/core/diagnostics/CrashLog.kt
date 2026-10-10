@@ -55,17 +55,38 @@ object CrashLog {
         runCatching { file()?.delete() }
     }
 
+    /** Stores model initialization failures without recording prompts or page content. */
+    fun recordModelLoadFailure(
+        modelId: String,
+        version: String,
+        backends: List<String>,
+        totalRamBytes: Long,
+        availableRamBytes: Long,
+        error: Throwable,
+    ) {
+        val stack = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
+        val entry = buildString {
+            appendLine(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
+            appendLine("issue: offline AI model failed to load")
+            appendDeviceDetails()
+            appendLine("model: $modelId@$version")
+            appendLine("backends tried: ${backends.joinToString()}")
+            appendLine("device RAM: ${totalRamBytes / 1_000_000} MB total, ${availableRamBytes / 1_000_000} MB available")
+            appendLine(stack.take(6_000))
+        }
+        appendEntry(entry)
+    }
+
     private fun record(error: Throwable, threadName: String) {
-        val target = file() ?: return
         val stack = StringWriter().also { error.printStackTrace(PrintWriter(it)) }.toString()
         val runtime = Runtime.getRuntime()
 
         val entry = buildString {
             appendLine(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
+            appendLine("issue: app crash")
             appendLine("doing: ${note.ifBlank { "unknown" }}")
             appendLine("thread: $threadName")
-            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
-            appendLine("abi: ${Build.SUPPORTED_ABIS.joinToString()}")
+            appendDeviceDetails()
             appendLine(
                 "heap: ${(runtime.totalMemory() - runtime.freeMemory()) / 1_000_000} MB used " +
                     "of ${runtime.maxMemory() / 1_000_000} MB max",
@@ -73,6 +94,17 @@ object CrashLog {
             appendLine(stack.take(6_000))
         }
 
+        appendEntry(entry)
+    }
+
+    private fun StringBuilder.appendDeviceDetails() {
+        appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+        appendLine("abi: ${Build.SUPPORTED_ABIS.joinToString()}")
+    }
+
+    @Synchronized
+    private fun appendEntry(entry: String) {
+        val target = file() ?: return
         // Keep the most recent few; an unbounded log is one more thing to go wrong.
         val existing = runCatching { if (target.isFile) target.readText() else "" }.getOrDefault("")
         val kept = (listOf(entry) + existing.split(SEPARATOR).filter { it.isNotBlank() })

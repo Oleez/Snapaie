@@ -43,6 +43,8 @@ data class ModelManifest(
     val runtimeVersion: Int = 1,
     /** Lowest app versionCode allowed to use this artifact. */
     val minAppVersion: Int = 0,
+    /** Advisory total device RAM recommendation; this is not a load guarantee. */
+    val recommendedRamGb: Int = ModelSpec.DEFAULT_RECOMMENDED_RAM_GB,
     /** Optional human note shown on the update card. */
     @SerialName("releaseNotes") val releaseNotes: String = "",
     /**
@@ -78,6 +80,7 @@ data class ModelSpec(
     val runtime: String,
     val runtimeVersion: Int,
     val releaseNotes: String = "",
+    val recommendedRamGb: Int = DEFAULT_RECOMMENDED_RAM_GB,
     /** Backend this artifact was selected for. */
     val backend: ModelBackend = ModelBackend.CPU,
 ) {
@@ -102,7 +105,18 @@ data class ModelSpec(
 
     companion object {
         const val SHA256_HEX_LENGTH = 64
+        const val DEFAULT_RECOMMENDED_RAM_GB = 8
     }
+}
+
+/** User-facing guidance based on total RAM, not a promise of runtime compatibility. */
+object ModelCompatibilityMessage {
+    fun describe(deviceRamGb: Int, recommendedRamGb: Int): String =
+        if (deviceRamGb >= recommendedRamGb) {
+            "Device compatibility: $deviceRamGb GB RAM detected; $recommendedRamGb GB is recommended. Available memory, Android version, and device hardware can still affect loading."
+        } else {
+            "Limited compatibility: $deviceRamGb GB RAM detected; $recommendedRamGb GB is recommended. You can try this model, but it may fail under memory pressure. Basic offline features remain available."
+        }
 }
 
 /** Validates a raw manifest against this build and turns it into a [ModelSpec]. */
@@ -131,6 +145,7 @@ object ModelManifestValidator {
             if (!chosen.downloadUrl.startsWith("https://", ignoreCase = true)) add("downloadUrl (https)")
             if (chosen.sizeBytes <= 0L) add("sizeBytes")
             if (!isValidSha256(chosen.sha256)) add("sha256")
+            if (manifest.recommendedRamGb !in 1..32) add("recommendedRamGb (1..32)")
         }
         if (missing.isNotEmpty()) {
             return ModelManifestValidation.Rejected(
@@ -163,6 +178,7 @@ object ModelManifestValidator {
                 runtime = manifest.runtime.trim(),
                 runtimeVersion = manifest.runtimeVersion,
                 releaseNotes = manifest.releaseNotes.trim(),
+                recommendedRamGb = manifest.recommendedRamGb,
                 backend = ModelBackend.fromWire(chosen.backend),
             ),
         )

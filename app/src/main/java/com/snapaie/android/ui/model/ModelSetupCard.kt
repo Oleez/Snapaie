@@ -71,8 +71,8 @@ fun ModelSetupCard(
             spec?.releaseNotes?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
-            modelState.ramWarning?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            modelState.deviceCompatibility?.let {
+                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
 
             if (spec != null && !download.status.isActive && !modelState.isModelInstalled) {

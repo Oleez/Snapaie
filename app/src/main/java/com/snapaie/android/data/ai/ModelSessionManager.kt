@@ -95,16 +95,6 @@ class ModelSessionManager(
 
     override fun isModelInstalled(): Boolean = modelRepository.isModelInstalled()
 
-    /** RAM gate: warn on devices that will struggle with a multi-GB model. */
-    fun ramWarning(): String? {
-        val totalGb = totalRamGb()
-        return if (totalGb < MIN_COMFORTABLE_RAM_GB) {
-            "This device reports $totalGb GB RAM. On-device AI may be unstable here."
-        } else {
-            null
-        }
-    }
-
     /**
      * Pins the engine in memory for the duration of a long job.
      *
@@ -290,8 +280,10 @@ class ModelSessionManager(
 
     private fun friendly(error: Throwable): String = when {
         error is ModelNotInstalledException -> "offline AI is not downloaded yet"
-        error.message?.contains("memory", ignoreCase = true) == true -> "this device ran out of memory"
-        else -> "something went wrong. Try again."
+        generateSequence(error) { it.cause }
+            .any { it.message?.contains("memory", ignoreCase = true) == true } ->
+            "Offline AI ran out of available memory. Close other apps and try again."
+        else -> "Offline AI could not load on this device. See Settings > Problem report for details."
     }
 
     private suspend fun ensureEngine(): Engine {
@@ -357,8 +349,18 @@ class ModelSessionManager(
 
         val message = lastError?.message
             ?: "The model could not be loaded on this device."
+        val memoryInfo = ActivityManager.MemoryInfo()
+        context.getSystemService(ActivityManager::class.java).getMemoryInfo(memoryInfo)
+        CrashLog.recordModelLoadFailure(
+            modelId = record.modelId,
+            version = record.version,
+            backends = attempts.map { it.wireName },
+            totalRamBytes = memoryInfo.totalMem,
+            availableRamBytes = memoryInfo.availMem,
+            error = lastError ?: IllegalStateException(message),
+        )
         modelRepository.onModelLoadFailed(record.modelId, record.version)
-        _state.value = ModelSessionState.Error(message)
+        _state.value = ModelSessionState.Error(friendly(lastError ?: IllegalStateException(message)))
         throw IllegalStateException("LiteRT-LM engine failed to initialize on ${attempts.joinToString()}", lastError)
     }
 
@@ -399,17 +401,8 @@ class ModelSessionManager(
         _state.value = ModelSessionState.Unloaded
     }
 
-    private fun totalRamGb(): Int {
-        val activityManager = context.getSystemService(ActivityManager::class.java)
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memoryInfo)
-        return (memoryInfo.totalMem / 1_000_000_000L).toInt().coerceAtLeast(1)
-    }
-
     companion object {
         const val IDLE_UNLOAD_MS = 60_000L
-        const val MIN_COMFORTABLE_RAM_GB = 3
-
         /** How long a forced unload waits for an in-flight generation to stop. */
         const val FORCED_UNLOAD_TIMEOUT_MS = 4_000L
         const val FORCED_UNLOAD_RETRIES = 10

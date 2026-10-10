@@ -19,6 +19,7 @@ See `latest.example.json` for the shape.
 | `sha256` | Exact expected digest; mismatches discard the download. |
 | `runtime` / `runtimeVersion` | Runtime contract. The app refuses artifacts it cannot load. |
 | `minAppVersion` | Lowest app `versionCode` allowed to use this artifact. |
+| `recommendedRamGb` | Advisory total-RAM recommendation shown to users; it does not guarantee loadability. Defaults to 8 for older manifests. |
 | `releaseNotes` | Optional text shown on the update card. |
 
 App version and model version are deliberately independent: app 1.0.0 can move from
@@ -52,3 +53,9 @@ files/models/
 Manifest unreachable, malformed, incompatible, or absent: the app keeps using whatever
 is installed and reports why. If nothing is installed, scans fall back to instant
 heuristic drafts and the AI-dependent screens say the model is missing.
+
+Device RAM guidance is advisory. The app compares total device RAM with
+`recommendedRamGb`; available memory, Android version, ABI, drivers and thermals can still
+prevent loading. A verified download only confirms the file's size and SHA-256, not that
+LiteRT-LM can initialize it on every phone. Model files must use the runtime's prepared
+`.litertlm` format; other formats such as `.task` are not interchangeable.

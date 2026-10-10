@@ -72,6 +72,41 @@ class ModelManifestValidatorTest {
         val spec = (result as ModelManifestValidation.Accepted).spec
         assertEquals("example-model", spec.modelId)
         assertEquals("example-model@1.0.0", spec.key)
+        assertEquals(ModelSpec.DEFAULT_RECOMMENDED_RAM_GB, spec.recommendedRamGb)
+    }
+
+    @Test
+    fun `manifest RAM recommendation is carried into the model spec`() {
+        val result = ModelManifestValidator.validate(
+            ModelManifest(
+                modelId = "example-model",
+                version = "1.0.0",
+                filename = "example.litertlm",
+                downloadUrl = "https://example.com/example.litertlm",
+                sizeBytes = 1234L,
+                sha256 = "a".repeat(64),
+                recommendedRamGb = 4,
+            ),
+            appVersion,
+        )
+        assertEquals(4, (result as ModelManifestValidation.Accepted).spec.recommendedRamGb)
+    }
+
+    @Test
+    fun `invalid RAM recommendation is rejected`() {
+        val result = ModelManifestValidator.validate(
+            ModelManifest(
+                modelId = "example-model",
+                version = "1.0.0",
+                filename = "example.litertlm",
+                downloadUrl = "https://example.com/example.litertlm",
+                sizeBytes = 1234L,
+                sha256 = "a".repeat(64),
+                recommendedRamGb = 0,
+            ),
+            appVersion,
+        )
+        assertEquals(ModelIncompatibility.MALFORMED, (result as ModelManifestValidation.Rejected).reason)
     }
 
     @Test
@@ -160,5 +195,24 @@ class ModelManifestValidatorTest {
     fun `hash validation accepts a well formed lowercase digest`() {
         assertTrue(ModelManifestValidator.isValidSha256("0123456789abcdef".repeat(4)))
         assertFalse(ModelManifestValidator.isValidSha256(""))
+    }
+}
+
+class ModelCompatibilityMessageTest {
+
+    @Test
+    fun `recommended RAM reports compatibility with remaining caveats`() {
+        val message = ModelCompatibilityMessage.describe(deviceRamGb = 8, recommendedRamGb = 8)
+        assertTrue(message.contains("Device compatibility"))
+        assertTrue(message.contains("8 GB RAM detected"))
+        assertTrue(message.contains("can still affect loading"))
+    }
+
+    @Test
+    fun `below-recommendation RAM explains limited compatibility and fallback`() {
+        val message = ModelCompatibilityMessage.describe(deviceRamGb = 4, recommendedRamGb = 8)
+        assertTrue(message.contains("Limited compatibility"))
+        assertTrue(message.contains("may fail under memory pressure"))
+        assertTrue(message.contains("Basic offline features remain available"))
     }
 }

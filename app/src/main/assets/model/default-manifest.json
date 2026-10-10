@@ -8,5 +8,6 @@
   "runtime": "litert-lm",
   "runtimeVersion": 1,
   "minAppVersion": 1,
+  "recommendedRamGb": 8,
   "releaseNotes": "Works offline once it finishes. Nothing you read or write leaves your phone."
 }

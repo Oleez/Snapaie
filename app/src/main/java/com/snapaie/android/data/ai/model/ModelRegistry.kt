@@ -19,6 +19,7 @@ data class InstalledModel(
     val sizeBytes: Long,
     val runtime: String,
     val runtimeVersion: Int,
+    val recommendedRamGb: Int = ModelSpec.DEFAULT_RECOMMENDED_RAM_GB,
     val verifiedAtMillis: Long,
     /** True once the engine has actually loaded this artifact at least once. */
     val loadVerified: Boolean = false,
@@ -141,6 +142,7 @@ class ModelRegistry(context: Context) {
                 sizeBytes = spec.expectedBytes,
                 runtime = spec.runtime,
                 runtimeVersion = spec.runtimeVersion,
+                recommendedRamGb = spec.recommendedRamGb,
                 verifiedAtMillis = System.currentTimeMillis(),
                 loadVerified = false,
                 backend = spec.backend.wireName,

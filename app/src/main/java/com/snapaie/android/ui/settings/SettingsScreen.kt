@@ -301,8 +301,8 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
                     )
                     else -> Unit
                 }
-                modelState.ramWarning?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                modelState.deviceCompatibility?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     "The download happens once and stays on this device.",
@@ -328,8 +328,9 @@ fun SettingsScreen(viewModel: SnapAieViewModel, navController: NavHostController
             if (crashReport.isNotBlank()) {
                 SettingsCard("Problem report") {
                     Text(
-                        "snapaie closed unexpectedly recently. You can send this to the " +
-                            "developer to help get it fixed. It contains no page content.",
+                        "A recent crash or offline AI load failure was recorded. You can send " +
+                            "this report to the developer. It contains device and model details, " +
+                            "but no page or chat content.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
