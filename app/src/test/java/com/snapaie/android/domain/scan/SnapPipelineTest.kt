@@ -3,6 +3,7 @@ package com.snapaie.android.domain.scan
 import com.snapaie.android.data.ai.TextGenerator
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
+import com.snapaie.android.data.model.ScanPageInput
 import com.snapaie.android.domain.book.Segmenter
 import com.snapaie.android.domain.condense.Abridger
 import kotlinx.coroutines.flow.Flow
@@ -128,13 +129,17 @@ class SnapPipelineTest {
 
     @Test
     fun `a runtime error is never printed into the page`() = runTest {
-        // It used to be sent down the same channel as the text and pasted onto the front.
+        // A failed image model must surface as a failure, never as page text or a fallback.
         val fake = Fake(
             onImage = { flow { emit("LiteRT-LM stream error: Status Code: 3. Message: Vision executor should not be null.") } },
         )
-        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
+        val failure = runCatching {
+            engineWith(fake).run(draft(text = "", image = photo.absolutePath)).collect { }
+        }.exceptionOrNull()
+
+        assertTrue("the image failure was hidden", failure != null)
         listOf("LiteRT", "Status Code", "executor", "stream error").forEach {
-            assertFalse("leaked '$it' into the reply:\n$prose", prose.contains(it, ignoreCase = true))
+            assertFalse("leaked '$it' into the error", failure?.message.orEmpty().contains(it, ignoreCase = true))
         }
     }
 
@@ -231,15 +236,84 @@ class SnapPipelineTest {
 
     @Test
     fun `a photo with no readable text says why rather than showing nothing`() = runTest {
-        // Reading a photo now happens at capture, so by the time this runs the page is
-        // either text or it is nothing. Nothing, with a photo attached and no model to
-        // read it, has exactly one honest explanation.
+        // No model means no image result; it must not silently invoke a text fallback.
         val fake = Fake(installed = false)
-        var reason = ""
+        val failure = runCatching {
+            engineWith(fake).run(draft(text = "", image = photo.absolutePath)).collect { }
+        }.exceptionOrNull()
+
+        assertTrue("the missing model was not explained", failure?.message?.contains("offline AI") == true)
+        assertEquals("a missing model still triggered vision", 0, fake.imageCalls)
+        assertEquals("the image was routed to text generation", 0, fake.textCalls)
+    }
+
+    @Test
+    fun `an image-only page goes directly to vision without a text call`() = runTest {
+        val fake = Fake()
+        val prose = proseFrom(fake, draft(text = "", image = photo.absolutePath))
+
+        assertEquals("the image was not sent to the model", 1, fake.imageCalls)
+        assertEquals("the page was routed through text generation", 0, fake.textCalls)
+        assertTrue("the image model produced no result", prose.isNotBlank())
+    }
+
+    @Test
+    fun `scanned PDF pages are sent to vision one at a time in order`() = runTest {
+        val fake = Fake()
+        val draft = BookScanDraft(
+            pageInputs = listOf(
+                ScanPageInput(pageNumber = 1, imagePath = photo.absolutePath),
+                ScanPageInput(pageNumber = 2, imagePath = photo.absolutePath),
+            ),
+        )
+        val prose = proseFrom(fake, draft)
+
+        assertEquals("not every page was sent to vision", 2, fake.imageCalls)
+        assertEquals("scanned pages went through text generation", 0, fake.textCalls)
+        assertEquals("per-page output was not combined", 2, prose.split("sculptor").size - 1)
+    }
+
+    @Test
+    fun `a scanned page makes mixed PDF failure stop without heuristic output`() = runTest {
+        val fake = Fake(
+            onText = { flow { emit(GOOD_PROSE) } },
+            onImage = { flow { emit("") } },
+        )
+        val draft = BookScanDraft(
+            pageInputs = listOf(
+                ScanPageInput(pageNumber = 1, text = page),
+                ScanPageInput(pageNumber = 2, imagePath = photo.absolutePath),
+            ),
+        )
+        var resultEmitted = false
+        val failure = runCatching {
+            engineWith(fake).run(draft).collect { event ->
+                if (event is WorkflowEvent.Result) resultEmitted = true
+            }
+        }.exceptionOrNull()
+
+        assertTrue("mixed PDF silently fell back to text heuristics", failure?.message?.contains("page 2") == true)
+        assertEquals("the scanned page did not go through vision", 1, fake.imageCalls)
+        assertFalse("a partial PDF result was emitted", resultEmitted)
+    }
+
+    @Test
+    fun `image scan result is marked as image-based`() = runTest {
+        val fake = Fake()
+        var result: com.snapaie.android.data.model.KnowledgeResult? = null
+        var ocrPhase = false
         engineWith(fake).run(draft(text = "", image = photo.absolutePath)).collect { event ->
-            if (event is WorkflowEvent.Phase) reason = event.update.text.ifBlank { reason }
+            if (event is WorkflowEvent.Result) result = event.result
+            if (event is WorkflowEvent.Phase && event.update.phase == com.snapaie.android.data.model.ScanPhase.Ocr) {
+                ocrPhase = true
+            }
         }
-        assertTrue("the reader was told nothing: '$reason'", reason.contains("offline AI"))
+
+        assertTrue(result?.imageBased == true)
+        assertEquals(0, result?.estimatedTimeSavedMinutes)
+        assertTrue("image result contains heuristic source fields", result?.coreIdea.isNullOrBlank())
+        assertTrue("image result contains heuristic concise meaning", result?.conciseMeaning.isNullOrBlank())
+        assertFalse("an OCR phase was reported for direct image input", ocrPhase)
     }
 
     @Test

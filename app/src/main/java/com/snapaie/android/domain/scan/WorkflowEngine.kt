@@ -35,8 +35,20 @@ class WorkflowEngine(
     private val parser = StructuredOutputParser()
 
     fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Capture, "Page text captured.", isComplete = true)))
-        emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "Page text ready.", isComplete = true)))
+        val hasImageInput = draft.imagePath.isNotBlank() || draft.pageInputs.any { it.imagePath.isNotBlank() }
+        val hasPageInputs = draft.pageInputs.isNotEmpty()
+        emit(
+            WorkflowEvent.Phase(
+                PhaseUpdate(
+                    ScanPhase.Capture,
+                    if (hasImageInput) "Page image ready." else "Page text captured.",
+                    isComplete = true,
+                ),
+            ),
+        )
+        if (!hasImageInput && !hasPageInputs) {
+            emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Ocr, "Page text ready.", isComplete = true)))
+        }
 
         emit(WorkflowEvent.Phase(PhaseUpdate(ScanPhase.Compression, "Condensing the page…")))
 
@@ -49,7 +61,7 @@ class WorkflowEngine(
         // Held across the whole snap, not each call. A snap is several calls now, and the
         // gaps between them are exactly when a backgrounded app drops the weights.
         val attempt = sessionManager.acquireKeepAlive().use {
-            condenseToProse(draft) { token -> emit(WorkflowEvent.Token(token)) }
+            condenseToProse(draft, onToken = { token -> emit(WorkflowEvent.Token(token)) })
         }
 
         // Having a model must never leave the reader worse off than not having one.
@@ -86,11 +98,10 @@ class WorkflowEngine(
 
         val producedBy = if (attempt.prose.isNotBlank()) attempt.producedBy else ProducedBy.ON_DEVICE
         val result = if (prose.isNotBlank()) {
-            // The cheap, honest parts computed locally rather than asked for: no second
-            // round trip, and nothing the model could invent.
-            parser.heuristicOnly(draft).copy(condensedProse = prose, producedBy = producedBy)
+            val structured = if (hasImageInput) KnowledgeResult() else parser.heuristicOnly(draft)
+            structured.copy(condensedProse = prose, producedBy = producedBy)
         } else {
-            parser.heuristicOnly(draft)
+            if (hasImageInput) KnowledgeResult() else parser.heuristicOnly(draft)
         }
         emit(WorkflowEvent.Result(finalize(draft, result), fromModel = fromModel))
     }
@@ -271,32 +282,97 @@ class WorkflowEngine(
     private suspend fun condenseToProse(
         draft: BookScanDraft,
         onToken: suspend (String) -> Unit,
+        sharedDeadline: Deadline? = null,
     ): ProseAttempt {
+        val deadline = sharedDeadline ?: startDeadline(SNAP_BUDGET_MS)
+        val hasImage = draft.imagePath.isNotBlank()
+        if (hasImage && !sessionManager.isModelInstalled()) {
+            error("Download offline AI to read this page image. No text-recognition fallback was used.")
+        }
+        if (hasImage && !sessionManager.visionAllowed) {
+            error("The installed offline model cannot read images. Install a vision-capable model.")
+        }
+
+        if (draft.pageInputs.isNotEmpty()) {
+            val hasScannedPages = draft.pageInputs.any { it.imagePath.isNotBlank() }
+            if (hasScannedPages) {
+                check(sessionManager.isModelInstalled()) {
+                    "Download offline AI to read scanned PDF pages. No OCR fallback was used."
+                }
+                check(sessionManager.visionAllowed) {
+                    "The installed offline model cannot read scanned PDF pages. Install a vision-capable model."
+                }
+            }
+            val attempts = mutableListOf<ProseAttempt>()
+            for (page in draft.pageInputs) {
+                val pageDraft = draft.copy(
+                    pageText = page.text,
+                    imagePath = page.imagePath,
+                    pageInputs = emptyList(),
+                )
+                val attempt = try {
+                    condenseToProse(pageDraft, onToken, deadline)
+                } catch (error: IllegalStateException) {
+                    throw IllegalStateException(
+                        "Offline AI could not process PDF page ${page.pageNumber}. No OCR fallback was used.",
+                        error,
+                    )
+                }
+                check(attempt.prose.isNotBlank()) {
+                    "Offline AI could not process PDF page ${page.pageNumber}. No OCR fallback was used."
+                }
+                if (hasScannedPages) {
+                    check(attempt.producedBy == ProducedBy.OFFLINE_AI) {
+                        "Offline AI could not process PDF page ${page.pageNumber}. No local fallback was used."
+                    }
+                }
+                attempts += attempt
+            }
+            return ProseAttempt(
+                prose = attempts.joinToString("\n\n") { it.prose },
+                reason = null,
+                producedBy = if (attempts.all { it.producedBy == ProducedBy.OFFLINE_AI }) {
+                    ProducedBy.OFFLINE_AI
+                } else {
+                    ProducedBy.ON_DEVICE
+                },
+            )
+        }
+
         var source = draft.pageText.trim()
-        // Skipped outright once images have proven fatal here, so a device that cannot do
-        // this goes straight to the text path instead of dying to find out again.
-        val hasImage = sessionManager.visionAllowed &&
-            draft.imagePath.isNotBlank() &&
-            java.io.File(draft.imagePath).isFile
         val template = runCatching { prompts.read("prompts/condense_page.md") }.getOrDefault("")
-        if (template.isBlank()) return ProseAttempt("", "The condenser is missing from this build.")
+        if (template.isBlank()) {
+            check(!hasImage) { "The local image-reading prompt is missing from this build." }
+            return ProseAttempt("", "The condenser is missing from this build.")
+        }
+
+        if (hasImage) {
+            val image = java.io.File(draft.imagePath)
+            check(image.isFile) { "The page image is no longer available. Select it again and retry." }
+
+            val sourceWords = TYPICAL_PAGE_WORDS
+            val budget = budgetFor(sourceWords, draft.mode.condenseRatio)
+            val budgetTokens = budget * 2 + 80
+            val imagePrompt = promptFor(template, budget, imageMode = true, style = draft.mode)
+            val attempt = streamImageOnce(
+                prompt = imagePrompt,
+                imagePath = image.absolutePath,
+                maxOutputTokens = budgetTokens,
+                deadline = deadline,
+                onToken = onToken,
+            )
+            val prose = BeatContract.cleanProse(attempt.text)
+            check(prose.isNotBlank() && !BeatContract.isRuntimeNoise(prose)) {
+                attempt.timeoutReason ?: "Offline AI could not read this image. Try another photo."
+            }
+            return ProseAttempt(prose, null, ProducedBy.OFFLINE_AI)
+        }
 
         var best = ""
         var reason: String? = null
-        val deadline = startDeadline(SNAP_BUDGET_MS)
 
-        // The page arrives already read. Capture transcribes with the model before any of
-        // this runs, so there is no second reading pass here and no rule for deciding
-        // between two readers — there is only one.
         if (source.length < MIN_PROSE_SOURCE_CHARS) {
-            return ProseAttempt(
-                "",
-                if (hasImage && !sessionManager.isModelInstalled()) {
-                    NEEDS_MODEL_TO_READ
-                } else {
-                    "There is not enough text on this page to shorten."
-                },
-            )
+            return ProseAttempt("", "There is not enough text on this page to shorten.")
         }
 
         // Measured now, not before the photo was read.
@@ -469,11 +545,46 @@ class WorkflowEngine(
         return StreamAttempt(accumulated.toString(), timeoutReason)
     }
 
+    private suspend fun streamImageOnce(
+        prompt: String,
+        imagePath: String,
+        maxOutputTokens: Int,
+        deadline: Deadline,
+        onToken: suspend (String) -> Unit,
+    ): StreamAttempt {
+        val accumulated = StringBuilder()
+        var timeoutReason: String? = null
+        val allowed = deadline.capFor(INFERENCE_TIMEOUT_MS)
+        if (allowed <= 0L) return StreamAttempt("", "There was not enough time left to read this image.")
+        try {
+            withTimeout(allowed) {
+                sessionManager.streamWithImage(prompt, imagePath, maxOutputTokens).collect { token ->
+                    accumulated.append(token)
+                    if (token.isNotBlank()) onToken(token)
+                }
+            }
+        } catch (_: TimeoutCancellationException) {
+            timeoutReason = "Offline AI stopped before it finished reading this image. Try again."
+        } catch (_: IllegalStateException) {
+            timeoutReason = "Offline AI could not read this image. Try another photo."
+        }
+        return StreamAttempt(accumulated.toString(), timeoutReason)
+    }
+
     /** Overwrites model-invented metrics with honest, locally computed values. */
     private fun finalize(draft: BookScanDraft, result: KnowledgeResult): KnowledgeResult =
         result.copy(
-            estimatedTimeSavedMinutes = ScanMetrics.minutesSavedForResult(draft.pageText, result),
+            estimatedTimeSavedMinutes = if (
+                draft.pageText.isBlank() ||
+                draft.imagePath.isNotBlank() ||
+                draft.pageInputs.any { it.imagePath.isNotBlank() }
+            ) {
+                0
+            } else {
+                ScanMetrics.minutesSavedForResult(draft.pageText, result)
+            },
             styleUsed = result.styleUsed.ifBlank { draft.mode.name },
+            imageBased = draft.imagePath.isNotBlank() || draft.pageInputs.any { it.imagePath.isNotBlank() },
         )
 
     private companion object {

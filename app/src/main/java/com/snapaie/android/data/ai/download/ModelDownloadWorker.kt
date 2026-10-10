@@ -52,6 +52,7 @@ class ModelDownloadWorker(
             sha256 = sha,
             runtime = inputData.getString(KEY_RUNTIME).orEmpty(),
             runtimeVersion = inputData.getInt(KEY_RUNTIME_VERSION, 1),
+            supportsVision = inputData.getBoolean(KEY_SUPPORTS_VISION, false),
             backend = ModelBackend.fromWire(inputData.getString(KEY_BACKEND)),
         )
     }
@@ -180,6 +181,7 @@ class ModelDownloadWorker(
         const val KEY_RUNTIME = "runtime"
         const val KEY_RUNTIME_VERSION = "runtimeVersion"
         const val KEY_BACKEND = "backend"
+        const val KEY_SUPPORTS_VISION = "supportsVision"
 
         const val CHANNEL_ID = "snapaie_model_download"
         const val NOTIFICATION_ID = 4201

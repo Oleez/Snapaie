@@ -140,6 +140,8 @@ data class KnowledgeResult(
     val cefrVocabulary: CefrVocab? = null,
     val plainTextFallback: String = "",
     val styleUsed: String = "",
+    /** True when the result was generated directly from one or more page images. */
+    val imageBased: Boolean = false,
     /**
      * What actually produced [condensedProse].
      *
@@ -157,6 +159,10 @@ data class KnowledgeResult(
     fun toMarkdown(includeBranding: Boolean = true): String = buildString {
         appendLine("# snapaie Knowledge Scan")
         appendLine()
+        if (imageBased) {
+            appendLine("**Source:** Page image read locally")
+            appendLine()
+        }
         if (isPlainTextOnly) {
             appendLine(plainTextFallback)
         } else {
@@ -165,9 +171,11 @@ data class KnowledgeResult(
                 appendLine(condensedProse)
                 appendLine()
             }
-            appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
-            appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
-            appendLine()
+            if (!imageBased) {
+                appendLine("**Compression:** ${compressionScore.coerceIn(0, 100)}%")
+                appendLine("**Estimated time saved:** ${estimatedTimeSavedMinutes.coerceAtLeast(0)} min")
+                appendLine()
+            }
             appendLine("## Concise Meaning")
             appendLine(conciseMeaning.ifBlank { "Not generated." })
             appendLine()
@@ -275,6 +283,13 @@ data class BookScanDraft(
      * alongside for search and for comparing against the original, but it is no longer on
      * the critical path to a result.
      */
+    val imagePath: String = "",
+    val pageInputs: List<ScanPageInput> = emptyList(),
+)
+
+data class ScanPageInput(
+    val pageNumber: Int,
+    val text: String = "",
     val imagePath: String = "",
 )
 

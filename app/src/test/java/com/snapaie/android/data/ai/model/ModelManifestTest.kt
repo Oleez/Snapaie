@@ -73,6 +73,17 @@ class ModelManifestValidatorTest {
         assertEquals("example-model", spec.modelId)
         assertEquals("example-model@1.0.0", spec.key)
         assertEquals(ModelSpec.DEFAULT_RECOMMENDED_RAM_GB, spec.recommendedRamGb)
+        assertFalse(spec.supportsVision)
+    }
+
+    @Test
+    fun `vision capability is carried from the manifest to the model spec`() {
+        val result = ModelManifestValidator.validate(
+            manifest().copy(supportsVision = true),
+            appVersion,
+        )
+        assertTrue(result is ModelManifestValidation.Accepted)
+        assertTrue((result as ModelManifestValidation.Accepted).spec.supportsVision)
     }
 
     @Test

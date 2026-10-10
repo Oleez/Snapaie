@@ -178,11 +178,11 @@ private fun MainShell(
                 navController.navigate(Routes.Snap) { launchSingleTop = true }
             }
             ingest.uri != null -> {
-                viewModel.extractText(ingest.uri)
+                viewModel.prepareImage(ingest.uri)
                 navController.navigate(Routes.Snap) { launchSingleTop = true }
             }
             ingest.pageUris.isNotEmpty() -> {
-                viewModel.extractText(ingest.pageUris.first())
+                viewModel.prepareImage(ingest.pageUris.first())
                 navController.navigate(Routes.Snap) { launchSingleTop = true }
             }
         }
@@ -363,7 +363,7 @@ private fun MainShell(
                     composable(Routes.Camera) {
                         CameraScanRoute(
                             onImageCaptured = { uri ->
-                                viewModel.extractText(uri)
+                                viewModel.prepareImage(uri)
                                 navController.popBackStack()
                             },
                             onDismiss = { navController.popBackStack() },

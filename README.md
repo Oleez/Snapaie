@@ -102,51 +102,22 @@ hole in a story is not. Those passages are marked in the reader.
 
 ## The model
 
-Text-only, and deliberately so. It decides what to cut from every page and writes the
-styles that must be composed. It does **not** read images: ML Kit does that natively in
-milliseconds at a fraction of the size, and a model that never has to see is a third
-smaller — which is the difference between running on most phones and running on few.
+The Snap/photo workflow sends the page image directly to the local vision-language model.
+It does not run OCR first, create a transcript, or send the image to the cloud. Scanned
+pages in a page-level PDF are handled the same way; searchable PDF pages keep their native
+text. Whole-book imports remain text-first so the book abridgement pipeline can preserve
+the source sentences and order.
 
-A text recogniser matches printed shapes. Hand it a page of handwriting and it returns a
-few stray characters or nothing at all — which is why a letter, a lab notebook, lecture
-notes or a form filled in by hand were previously out of reach. A model that looks at the
-image can read them. Turn on "Handwritten page" under a photo and it transcribes what is
-there; the shortening then happens on the device as usual.
+Gemma 4 E2B Instruct, Apache-2.0, in LiteRT-LM's `.litertlm` format. The CPU artifact is
+about 2.59 GB; compatible GPU devices can download a smaller backend-specific artifact.
+Vision weights are loaded on demand. The app recommends 8 GB RAM for reliable image use,
+but actual compatibility also depends on available memory, Android version, hardware and
+thermal state. This is a recommendation, not a guarantee for every phone. Model-load
+diagnostics include device/backend/memory details, not page or chat content.
 
-It transcribes and stops. Asking it to read *and* condense in one pass was a single slow
-call that could fail at either job with no way to tell which, and the condensing is better
-done by the ranker anyway.
-
-Beyond reading, it chooses what to cut from every page, writes the styles that must be
-*written* rather than trimmed — Bullets, Steps, Analogy — and powers chat over a finished
-book and the writing assistant. Without it the app still shortens pages; it just does the
-choosing itself.
-
-Qwen 2.5 1.5B Instruct, Apache-2.0, in LiteRT-LM's `.litertlm` format — one build, 1.6 GB,
-`Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm`, with a 4096-token window that
-matches what the app asks for.
-
-The app recommends a phone with 8 GB RAM for reliable use. Lower-memory phones can still
-try this model, but may fail when other apps are using memory; total RAM is only a guide,
-not a compatibility guarantee. Settings records model-load failures with the device,
-backend and memory details needed to diagnose them, without recording page or chat content.
-Smaller model files are not automatically compatible: the app currently loads LiteRT-LM
-`.litertlm` artifacts, while the published Qwen 2.5 0.5B quantized artifact is `.task` and
-targets a different runtime interface.
-
-From <https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct> — not gated, no token
-needed. Weights are never committed and never bundled in the APK.
-
-It replaced Gemma 4 E2B (2.0–2.4 GB, multimodal). That model wanted more memory than most
-phones have, and it was carrying an image encoder to do a job ML Kit does natively in
-milliseconds. Dropping vision made a third of the size unnecessary and made an entire class
-of native crash — `Vision executor should not be null`, and the SIGSEGVs around it —
-impossible rather than merely handled.
-
-Gemma 3 1B would be smaller still at 584 MB and better on 4 GB phones, but its repository is
-gated: downloading it needs a logged-in account that has accepted the licence, so the app
-cannot fetch it directly. It becomes an option the day those weights are mirrored somewhere
-we control.
+The artifact is hosted by [LiteRT Community](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm).
+Weights are never committed or bundled in the APK. The model is downloaded only after the
+user chooses to install it.
 
 Delivery is described in `docs/model-delivery.md`. In short: a remote `latest.json`
 (`snapaie.model.manifest.url` in `gradle.properties`) is the only channel model facts reach
@@ -165,10 +136,9 @@ proven model exists to fall back to.
 - **A full-length book takes hours.** The UI says so before you start, runs the job as
   resumable foreground work, pauses when the device gets too hot, and lets you read what is
   finished. It does not make it fast.
-- **Handwriting needs the cloud.** ML Kit reads printed pages in milliseconds and cannot
-  read handwriting at all — not badly, at all. When it comes back with fragments the app
-  says so and offers Cloud Read rather than condensing the fragments, which is what used to
-  happen. Printed pages, PDFs and EPUBs are unaffected and free.
+- **Whole-book scanned PDFs still use text extraction.** Snap's single-page photo and
+     scanned-PDF workflows use local vision directly, but book imports keep their separate
+     text-first pipeline. Text-native PDFs and EPUBs retain their exact source text.
 - **PDF export uses the standard PDF fonts**, which cover Western European text. Non-Latin
   scripts are not yet supported in PDF output; EPUB and Markdown have no such limit.
 

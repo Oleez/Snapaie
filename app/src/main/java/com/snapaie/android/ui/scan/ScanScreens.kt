@@ -101,7 +101,7 @@ fun ScanHubScreen(
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) viewModel.extractText(uri)
+        if (uri != null) viewModel.prepareImage(uri)
     }
     val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) viewModel.ingestPdf(uri)
@@ -187,20 +187,26 @@ fun ScanHubScreen(
                             Text("PDF")
                         }
                     }
-                    if (state.isOcrRunning) {
+                    if (state.isImagePreparing) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             CircularProgressIndicator(modifier = Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)
-                            Text("Reading the page…", style = MaterialTheme.typography.bodySmall)
+                            Text("Preparing image for local AI…", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     state.ocrError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    // A page the recogniser could not read. Almost always handwriting, so
-                    // this is an offer rather than a failure — and it is deliberately not
-                    // styled as an error, because nothing went wrong.
-                    if (state.needsCloudRead) {
-                        HandwritingNotice()
+                    when {
+                        state.draft.imagePath.isNotBlank() -> Text(
+                            "Image ready. Local AI reads it directly; no text transcript is created.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        state.draft.pageInputs.any { it.imagePath.isNotBlank() } -> Text(
+                            "PDF pages ready. Scanned pages go directly to local AI.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     OutlinedTextField(
                         value = state.draft.bookTitle,
@@ -212,7 +218,7 @@ fun ScanHubScreen(
                     OutlinedTextField(
                         value = state.draft.pageText,
                         onValueChange = viewModel::updatePageText,
-                        label = { Text("Page text (or paste anything)") },
+                        label = { Text("Page text (optional)") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 160.dp),
@@ -222,7 +228,8 @@ fun ScanHubScreen(
                             navController.navigate(Routes.ScanRun)
                             viewModel.runWorkflow()
                         },
-                        enabled = state.draft.pageText.isNotBlank() && !state.isRunning,
+                        enabled = (state.draft.pageText.isNotBlank() || state.draft.imagePath.isNotBlank()) &&
+                            !state.isRunning && !state.isImagePreparing,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = null)
@@ -268,6 +275,15 @@ fun CompressionRunScreen(viewModel: SnapAieViewModel, navController: NavHostCont
     ) {
         item {
             Text("Condensing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        }
+        state.ocrError?.let { message ->
+            item {
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
         item {
             LiquidGlassSurface {
@@ -371,10 +387,14 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricPill("${current.result.compressionScore}%", "compressed")
-                MetricPill("${current.result.estimatedTimeSavedMinutes}m", "saved")
-                MetricPill("${current.wordsIn}", "words in")
+            if (current.result.imageBased) {
+                MetricPill("Image", "read locally")
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricPill("${current.result.compressionScore}%", "compressed")
+                    MetricPill("${current.result.estimatedTimeSavedMinutes}m", "saved")
+                    MetricPill("${current.wordsIn}", "words in")
+                }
             }
         }
         item {
@@ -520,7 +540,9 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
             }
             // The breakdown is a second full generation, so it is offered rather than
             // spent on every snap before the reader gets to the part they came for.
-            if (current.result.coreIdea.isBlank() && current.result.conciseMeaning.isBlank()) {
+            if (!current.result.imageBased &&
+                current.result.coreIdea.isBlank() && current.result.conciseMeaning.isBlank()
+            ) {
                 item {
                     var loading by remember(current.id) { mutableStateOf(false) }
                     LiquidGlassSurface {
@@ -567,45 +589,55 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
             }
         }
 
-        item {
-            CefrVocabSection(
-                vocab = current.result.cefrVocabulary,
-                loading = vocabLoading,
-                onGenerate = {
-                    vocabLoading = true
-                    viewModel.generateCefrVocab(current.id) { vocabLoading = false }
-                },
-                onAddToForge = { word, definition ->
-                    scope.launch {
-                        viewModel.container.recallEngine.saveTopic(
-                            title = word,
-                            summary = definition.take(200),
-                            content = "$word — $definition",
-                            sourceType = "vocab",
-                            sourceScanId = current.id,
-                        )
-                    }
-                },
-            )
+        if (!current.result.imageBased) {
+            item {
+                CefrVocabSection(
+                    vocab = current.result.cefrVocabulary,
+                    loading = vocabLoading,
+                    onGenerate = {
+                        vocabLoading = true
+                        viewModel.generateCefrVocab(current.id) { vocabLoading = false }
+                    },
+                    onAddToForge = { word, definition ->
+                        scope.launch {
+                            viewModel.container.recallEngine.saveTopic(
+                                title = word,
+                                summary = definition.take(200),
+                                content = "$word — $definition",
+                                sourceType = "vocab",
+                                sourceScanId = current.id,
+                            )
+                        }
+                    },
+                )
+            }
         }
 
         item {
-            OutlinedButton(
-                onClick = {
-                    viewModel.loadDraftFromScan(current)
-                    navController.navigate(Routes.ScanRun)
-                    viewModel.runWorkflow()
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Re-run clarity")
-            }
-            if (current.sourceText.isBlank()) {
+            if (current.result.imageBased) {
                 Text(
-                    "Original full text unavailable for this older scan — re-run uses the stored preview.",
+                    "The original image is not retained. Select it again to run another visual scan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        viewModel.loadDraftFromScan(current)
+                        navController.navigate(Routes.ScanRun)
+                        viewModel.runWorkflow()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Re-run clarity")
+                }
+                if (current.sourceText.isBlank()) {
+                    Text(
+                        "Original full text unavailable for this older scan — re-run uses the stored preview.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         item { Spacer(Modifier.height(12.dp)) }
@@ -776,33 +808,3 @@ internal fun formatBytes(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-/**
- * Shown when the page is readable-looking but the recogniser could not make sense of it.
- *
- * A text recogniser reads printed shapes. Handwriting is not a harder version of that job,
- * it is a different one, and no amount of retaking the photo will fix it — so telling
- * someone to try again in better light would be advice that cannot work. This says what is
- * actually true and what will actually help.
- */
-@Composable
-private fun HandwritingNotice() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text("This looks handwritten", style = MaterialTheme.typography.titleSmall)
-        Text(
-            "Offline reading handles printed pages. Handwritten ones need Cloud Read, " +
-                "which is coming soon.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "You can still type or paste the text below and shorten it now.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-}

@@ -6,8 +6,12 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.model.ScanPageInput
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Offline PDF text extraction: PdfRenderer renders each page to a bitmap, then
@@ -20,6 +24,65 @@ class PdfTextExtractor(
 ) {
 
     data class PageResult(val pageIndex: Int, val text: String)
+
+    /** Page-level Snap input: native text is retained; scanned pages stay images. */
+    suspend fun prepareForSnap(uri: Uri, maxPages: Int): List<ScanPageInput> =
+        withContext(Dispatchers.IO) {
+            val source = File(context.cacheDir, "snap-pdf-${System.nanoTime()}.pdf")
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    source.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("That PDF could not be opened.")
+
+                PDDocument.load(source).use { document ->
+                    val descriptor = ParcelFileDescriptor.open(source, ParcelFileDescriptor.MODE_READ_ONLY)
+                    PdfRenderer(descriptor).use { renderer ->
+                        val pages = minOf(document.numberOfPages, renderer.pageCount, maxPages)
+                        buildList {
+                            for (index in 0 until pages) {
+                                val text = PDFTextStripper().apply {
+                                    startPage = index + 1
+                                    endPage = index + 1
+                                    sortByPosition = true
+                                }.getText(document).trim()
+
+                                if (text.length >= MIN_TEXT_LAYER_CHARS) {
+                                    add(ScanPageInput(pageNumber = index + 1, text = text))
+                                } else {
+                                    add(
+                                        ScanPageInput(
+                                            pageNumber = index + 1,
+                                            imagePath = renderPage(renderer, index),
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } finally {
+                source.delete()
+            }
+        }
+
+    private fun renderPage(renderer: PdfRenderer, index: Int): String =
+        renderer.openPage(index).use { page ->
+            val scale = minOf(1f, SNAP_RENDER_WIDTH.toFloat() / page.width)
+            val width = (page.width * scale).toInt().coerceAtLeast(1)
+            val height = (page.height * scale).toInt().coerceAtLeast(1)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            try {
+                bitmap.eraseColor(android.graphics.Color.WHITE)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                val image = File(context.cacheDir, "snap-pdf-page-${System.nanoTime()}-$index.jpg")
+                check(image.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }) {
+                    "PDF page image could not be prepared."
+                }
+                image.absolutePath
+            } finally {
+                bitmap.recycle()
+            }
+        }
 
     suspend fun pageCount(uri: Uri): Int = withContext(Dispatchers.IO) {
         openRenderer(uri)?.use { it.pageCount } ?: 0
@@ -77,6 +140,8 @@ class PdfTextExtractor(
          */
         const val FREE_PAGE_LIMIT = 40
         const val PRO_PAGE_LIMIT = 5_000
+        private const val SNAP_RENDER_WIDTH = 1240
+        private const val MIN_TEXT_LAYER_CHARS = 24
         private const val RENDER_WIDTH = 1240
     }
 }

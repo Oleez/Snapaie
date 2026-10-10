@@ -74,16 +74,21 @@ class ModelRepository(
         }
     }
 
-    /** The verified model the engine should load, or null when nothing is installed. */
-    fun activeRecord(): InstalledModel? = registry.activeRecord()
+    /** The verified model the engine should load, including a downloaded pending update. */
+    fun activeRecord(): InstalledModel? {
+        val pending = _state.value.downloadableSpec
+            ?.takeIf(registry::isInstalled)
+            ?.let { registry.recordFor(it.modelId, it.version) }
+        return pending ?: registry.activeRecord()
+    }
 
-    fun activeModelFile(): File? = registry.activeRecord()?.let { registry.modelFile(it) }
+    fun activeModelFile(): File? = activeRecord()?.let { registry.modelFile(it) }
 
-    fun isModelInstalled(): Boolean = registry.activeRecord() != null
+    fun isModelInstalled(): Boolean = activeRecord() != null
 
     /** Re-reads local install state without touching the network. */
     fun refreshLocal() {
-        val installed = registry.activeRecord()
+        val installed = activeRecord()
         _state.value = _state.value.copy(
             installed = installed,
             deviceCompatibility = compatibilityMessage(_state.value.updateStatus, installed),

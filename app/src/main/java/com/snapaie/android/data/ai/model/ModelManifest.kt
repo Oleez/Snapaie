@@ -45,6 +45,8 @@ data class ModelManifest(
     val minAppVersion: Int = 0,
     /** Advisory total device RAM recommendation; this is not a load guarantee. */
     val recommendedRamGb: Int = ModelSpec.DEFAULT_RECOMMENDED_RAM_GB,
+    /** Whether the artifact includes a vision encoder and accepts image inputs. */
+    val supportsVision: Boolean = false,
     /** Optional human note shown on the update card. */
     @SerialName("releaseNotes") val releaseNotes: String = "",
     /**
@@ -81,6 +83,7 @@ data class ModelSpec(
     val runtimeVersion: Int,
     val releaseNotes: String = "",
     val recommendedRamGb: Int = DEFAULT_RECOMMENDED_RAM_GB,
+    val supportsVision: Boolean = false,
     /** Backend this artifact was selected for. */
     val backend: ModelBackend = ModelBackend.CPU,
 ) {
@@ -179,6 +182,7 @@ object ModelManifestValidator {
                 runtimeVersion = manifest.runtimeVersion,
                 releaseNotes = manifest.releaseNotes.trim(),
                 recommendedRamGb = manifest.recommendedRamGb,
+                supportsVision = manifest.supportsVision,
                 backend = ModelBackend.fromWire(chosen.backend),
             ),
         )

@@ -98,6 +98,7 @@ class ModelDownloadController(
                     ModelDownloadWorker.KEY_RUNTIME to spec.runtime,
                     ModelDownloadWorker.KEY_RUNTIME_VERSION to spec.runtimeVersion,
                     ModelDownloadWorker.KEY_BACKEND to spec.backend.wireName,
+                    ModelDownloadWorker.KEY_SUPPORTS_VISION to spec.supportsVision,
                 ),
             )
             .setConstraints(

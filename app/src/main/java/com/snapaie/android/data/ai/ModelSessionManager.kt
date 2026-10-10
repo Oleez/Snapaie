@@ -3,6 +3,7 @@ package com.snapaie.android.data.ai
 import android.app.ActivityManager
 import android.content.Context
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.SamplerConfig
@@ -60,18 +61,8 @@ class ModelSessionManager(
     private val scope: CoroutineScope,
 ) : TextGenerator {
 
-    /**
-     * Always false: the offline model is text-only and has no image encoder.
-     *
-     * Reading a page is ML Kit's job now. A recogniser matches printed glyphs in
-     * milliseconds at a fraction of the size, which is what a printed page actually needs —
-     * and a model that never has to see is a third the size, so it fits on the phones most
-     * people own. Handwriting, which a recogniser genuinely cannot do, goes to the cloud.
-     *
-     * This is not a preference. Asking a text-only bundle for a vision backend makes
-     * `Engine.initialize()` fail on every backend and takes all AI down with it.
-     */
-    override val visionAllowed: Boolean get() = false
+    override val visionAllowed: Boolean
+        get() = modelRepository.activeRecord()?.supportsVision == true
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedKey: String? = null
@@ -119,13 +110,7 @@ class ModelSessionManager(
      * Cancelling the collector cancels generation.
      */
     /**
-     * Streams a reply to [prompt] with [imagePath] attached, letting the model read the
-     * picture itself.
-     *
-     * Gemma 4 E2B takes images as well as text, which matters for pages a plain text
-     * recogniser struggles with — a curved spine, a column that wraps oddly, a footnote
-     * glued to the body. The recogniser is still tried first because it is far faster and
-     * usually right; this is the fallback for when it is not.
+    * Streams a reply to [prompt] with [imagePath] attached for a vision-capable model.
      */
     override fun streamWithImage(
         prompt: String,
@@ -147,7 +132,7 @@ class ModelSessionManager(
      */
     private fun stream(
         prompt: String,
-        @Suppress("UNUSED_PARAMETER") imagePath: String?,
+        imagePath: String?,
         maxOutputTokens: Int,
     ): Flow<String> = channelFlow {
         mutex.withLock {
@@ -155,6 +140,10 @@ class ModelSessionManager(
             streaming = true
             activeGeneration = currentCoroutineContext()[Job]
             try {
+                if (imagePath != null) {
+                    check(visionAllowed) { "The installed offline model cannot read images." }
+                    check(java.io.File(imagePath).isFile) { "The page image is unavailable." }
+                }
                 val active = ensureEngine()
                 // Two things decide how long a reply takes: how much context has to be
                 // read, and how many tokens come back. The second was unbounded, so a
@@ -172,7 +161,12 @@ class ModelSessionManager(
                         maxOutputToken = maxOutputTokens,
                     ),
                 ).use { conversation ->
-                    conversation.sendMessageAsync(Contents.of(prompt))
+                    val contents = if (imagePath == null) {
+                        Contents.of(prompt)
+                    } else {
+                        Contents.of(Content.ImageFile(imagePath), Content.Text(prompt))
+                    }
+                    conversation.sendMessageAsync(contents)
                         // Never write the failure into the reply. It used to be sent down the
                         // same channel as the text, so the runtime error string was pasted onto
                         // the front of the retelling and shipped to the reader as part of it.
@@ -314,13 +308,8 @@ class ModelSessionManager(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = backend.toRuntimeBackend(),
-                            // No vision, ever. The model is text-only, so there is no
-                            // image encoder in the bundle to ask for — and asking anyway is
-                            // what produced "Vision executor should not be null" on every
-                            // photographed page. Pages are read by ML Kit before anything
-                            // reaches here.
-                            visionBackend = null,
-                            maxNumImages = 0,
+                            visionBackend = if (record.supportsVision) backend.toRuntimeBackend() else null,
+                            maxNumImages = if (record.supportsVision) MAX_NUM_IMAGES else 0,
                             maxNumTokens = MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),
@@ -423,6 +412,7 @@ class ModelSessionManager(
          * number so the two cannot drift apart again.
          */
         const val MAX_CONTEXT_TOKENS = 4_096
+        const val MAX_NUM_IMAGES = 1
 
         /** Roughly 400 words, which is more than any single answer here needs. */
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560

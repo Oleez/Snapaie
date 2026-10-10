@@ -34,6 +34,8 @@ class BundledManifestTest {
             assertTrue(spec.downloadUrl.startsWith("https://"))
             assertEquals(64, spec.expectedSha256.length)
             assertTrue(spec.expectedBytes > 1_000_000_000L)
+            assertTrue(spec.supportsVision)
+            assertEquals(8, spec.recommendedRamGb)
         }
     }
 
@@ -49,10 +51,7 @@ class BundledManifestTest {
 
     @Test
     fun `every backend resolves to a usable artifact`() {
-        // The bundled model ships one build, not a GPU/CPU pair. Both backends therefore
-        // resolve to the same file — which is fine, and the point of the assertion is that
-        // neither comes back empty. A GPU device loading a CPU artifact works; a device
-        // resolving to nothing has no AI at all, which is the failure worth catching.
+        // Both backend variants must resolve to a vision-capable artifact.
         ModelBackend.entries.forEach { backend ->
             val result = ModelManifestValidator.validate(manifest(), APP_VERSION_CODE, backend)
             val spec = (result as ModelManifestValidation.Accepted).spec

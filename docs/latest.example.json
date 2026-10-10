@@ -9,6 +9,7 @@
   "runtimeVersion": 1,
   "minAppVersion": 1,
   "recommendedRamGb": 8,
+  "supportsVision": true,
   "releaseNotes": "Gemma 4 E2B, Apache-2.0. Runs entirely on your device.",
   "variants": [
     {

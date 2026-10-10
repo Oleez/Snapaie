@@ -10,7 +10,6 @@ import com.snapaie.android.data.local.decodeResultJson
 import com.snapaie.android.data.local.encodeResultJson
 import com.snapaie.android.data.local.knowledgeScanEntity
 import com.snapaie.android.data.local.toDomain
-import com.snapaie.android.data.ocr.TextSource
 import com.snapaie.android.data.model.BookScanDraft
 import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
@@ -24,6 +23,7 @@ import com.snapaie.android.domain.notifications.NotificationKind
 import com.snapaie.android.domain.scan.ScanMetrics
 import com.snapaie.android.domain.scan.WorkflowEvent
 import com.snapaie.android.ui.nav.Routes
+import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,15 +43,8 @@ data class ScanUiState(
     val result: KnowledgeResult? = null,
     val lastSavedScanId: Long? = null,
     val isRunning: Boolean = false,
-    val isOcrRunning: Boolean = false,
+    val isImagePreparing: Boolean = false,
     val ocrError: String? = null,
-    /**
-     * The recogniser read the page but not well enough to condense.
-     *
-     * On a photographed page that almost always means handwriting, which a text recogniser
-     * cannot read at all — not badly, at all. It is an offer to make, not an error to show.
-     */
-    val needsCloudRead: Boolean = false,
 )
 
 class SnapAieViewModel(
@@ -131,7 +124,15 @@ class SnapAieViewModel(
     }
 
     fun updatePageText(pageText: String) {
-        _uiState.update { it.copy(draft = it.draft.copy(pageText = pageText)) }
+        _uiState.update {
+            it.copy(
+                draft = it.draft.copy(
+                    pageText = pageText,
+                    imagePath = if (pageText.isNotBlank()) "" else it.draft.imagePath,
+                    pageInputs = if (pageText.isNotBlank()) emptyList() else it.draft.pageInputs,
+                ),
+            )
+        }
     }
 
     fun updateContext(context: String) {
@@ -156,37 +157,36 @@ class SnapAieViewModel(
         viewModelScope.launch { container.appPreferencesRepository.setGemmaLicenseAccepted() }
     }
 
-    fun extractText(uri: Uri) {
+    fun prepareImage(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isOcrRunning = true, ocrError = null, needsCloudRead = false) }
-            // The photo is kept whatever the recogniser makes of it: a page it could not
-            // read is exactly the page worth sending somewhere that can.
-            val imagePath = runCatching { container.pageTextExtractor.localImagePath(uri) }.getOrNull()
-            runCatching { container.pageTextExtractor.extract(uri) }
-                .onSuccess { page ->
+            _uiState.update {
+                it.copy(
+                    isImagePreparing = true,
+                    ocrError = null,
+                    draft = it.draft.copy(pageText = "", imagePath = "", pageInputs = emptyList()),
+                )
+            }
+            runCatching {
+                container.pageTextExtractor.localImagePath(uri)
+                    ?: error("That image could not be opened. Select it again and retry.")
+            }
+                .onSuccess { imagePath ->
                     _uiState.update {
                         it.copy(
-                            isOcrRunning = false,
+                            isImagePreparing = false,
                             draft = it.draft.copy(
-                                pageText = page.text,
-                                imagePath = imagePath.orEmpty(),
+                                pageText = "",
+                                imagePath = imagePath,
                             ),
-                            needsCloudRead = page.source == TextSource.NEEDS_CLOUD,
-                            // Say which of the two happened. "Nothing on this page" and
-                            // "text this reader cannot handle" look identical on screen and
-                            // have completely different answers.
-                            ocrError = when {
-                                page.source == TextSource.NEEDS_CLOUD -> null
-                                page.text.isBlank() ->
-                                    "No text found on that photo. Try a straighter, better-lit one."
-                                else -> null
-                            },
                         )
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     _uiState.update {
-                        it.copy(isOcrRunning = false, ocrError = "That page could not be read. Try again.")
+                        it.copy(
+                            isImagePreparing = false,
+                            ocrError = error.message ?: "That image could not be prepared. Try again.",
+                        )
                     }
                 }
         }
@@ -198,6 +198,8 @@ class SnapAieViewModel(
             it.copy(
                 draft = it.draft.copy(
                     pageText = text,
+                    imagePath = "",
+                    pageInputs = emptyList(),
                     bookTitle = title.ifBlank { it.draft.bookTitle },
                 ),
             )
@@ -206,7 +208,7 @@ class SnapAieViewModel(
 
     fun ingestPdf(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isOcrRunning = true, ocrError = null) }
+            _uiState.update { it.copy(isImagePreparing = true, ocrError = null) }
             val limit = if (isPro.value) {
                 com.snapaie.android.data.pdf.PdfTextExtractor.PRO_PAGE_LIMIT
             } else {
@@ -214,19 +216,26 @@ class SnapAieViewModel(
             }
             // Truncation used to be silent, which is why a long PDF read as "not working"
             // rather than "we stopped early". Whatever happens now, the reader is told.
-            runCatching { container.pdfTextExtractor.extract(uri, limit) }
-                .onSuccess { text ->
+            runCatching { container.pdfTextExtractor.prepareForSnap(uri, limit) }
+                .onSuccess { pages ->
+                    val hasScannedPages = pages.any { it.imagePath.isNotBlank() }
+                    val sourcePages = if (hasScannedPages) pages else emptyList()
                     _uiState.update {
                         it.copy(
-                            isOcrRunning = false,
-                            draft = it.draft.copy(pageText = text),
-                            ocrError = if (text.isBlank()) "No readable text found in the PDF." else null,
+                            isImagePreparing = false,
+                            draft = it.draft.copy(
+                                pageText = pages.filter { page -> page.text.isNotBlank() }
+                                    .joinToString("\n\n") { page -> page.text },
+                                imagePath = "",
+                                pageInputs = sourcePages,
+                            ),
+                            ocrError = if (pages.isEmpty()) "No readable pages found in the PDF." else null,
                         )
                     }
                 }
                 .onFailure { error ->
                     _uiState.update {
-                        it.copy(isOcrRunning = false, ocrError = error.message ?: "PDF import failed")
+                        it.copy(isImagePreparing = false, ocrError = error.message ?: "PDF import failed")
                     }
                 }
         }
@@ -243,15 +252,20 @@ class SnapAieViewModel(
             // escaping a viewModelScope coroutine reaches the default handler and takes the
             // whole app down. A snap that cannot run should leave a message on the screen,
             // not close the app.
+            try {
             runCatching {
             container.workflowEngine.run(draft).collect { event ->
                 when (event) {
                     is WorkflowEvent.Phase -> _uiState.update { it.copy(phases = it.phases + event.update) }
                     is WorkflowEvent.Token -> _uiState.update { it.copy(streamText = it.streamText + event.value) }
                     is WorkflowEvent.Result -> {
-                        val wordsIn = ScanMetrics.wordCount(draft.pageText)
-                        val wordsOut = ScanMetrics.wordCount(event.result.conciseMeaning) +
-                            ScanMetrics.wordCount(event.result.simplifiedExplanation)
+                        val hasImageInput = draft.imagePath.isNotBlank() ||
+                            draft.pageInputs.any { it.imagePath.isNotBlank() }
+                        val wordsIn = if (hasImageInput) 0 else ScanMetrics.wordCount(draft.pageText)
+                        val wordsOut = if (hasImageInput) 0 else {
+                            ScanMetrics.wordCount(event.result.conciseMeaning) +
+                                ScanMetrics.wordCount(event.result.simplifiedExplanation)
+                        }
                         val id = container.database.knowledgeScanDao().insert(
                             knowledgeScanEntity(
                                 draft = draft,
@@ -265,9 +279,13 @@ class SnapAieViewModel(
                             it.copy(result = event.result, lastSavedScanId = id, isRunning = false)
                         }
                         container.notificationCenter.push(
-                            message = "${draft.bookTitle.ifBlank { "Your page" }} compressed " +
-                                "${event.result.compressionScore}% · " +
-                                "${event.result.estimatedTimeSavedMinutes} min saved.",
+                                message = if (event.result.imageBased) {
+                                    "${draft.bookTitle.ifBlank { "Your page" }} read and shortened from its image locally."
+                                } else {
+                                    "${draft.bookTitle.ifBlank { "Your page" }} compressed " +
+                                        "${event.result.compressionScore}% · " +
+                                        "${event.result.estimatedTimeSavedMinutes} min saved."
+                                },
                             title = "Scan saved",
                             kind = NotificationKind.Update,
                             ctaRoute = Routes.scanDetail(id),
@@ -278,15 +296,30 @@ class SnapAieViewModel(
             }
             }.onFailure { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
+                val hasImageInput = draft.imagePath.isNotBlank() ||
+                    draft.pageInputs.any { it.imagePath.isNotBlank() }
                 _uiState.update {
                     it.copy(
                         isRunning = false,
                         ocrError = when {
                             !container.sessionManager.isModelInstalled() ->
-                                "Turn on offline AI to condense this page."
+                                "Download offline AI to read and condense this page image."
+                            hasImageInput && !container.sessionManager.visionAllowed ->
+                                "The installed model cannot read images. Install a vision-capable model."
+                            hasImageInput ->
+                                "Offline AI could not read this image. Try another photo."
                             else -> "That did not finish. Try again."
                         },
                     )
+                }
+            }
+            } finally {
+                (draft.pageInputs.map { page -> page.imagePath } + draft.imagePath)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .forEach(container.pageTextExtractor::deleteTemporaryImage)
+                _uiState.update { state ->
+                    state.copy(draft = state.draft.copy(imagePath = "", pageInputs = emptyList()))
                 }
             }
         }
@@ -304,6 +337,7 @@ class SnapAieViewModel(
             val row = dao.getScan(scanId) ?: return@launch onDone(false)
             val existing = runCatching { decodeResultJson(row.resultJson) }
                 .getOrDefault(KnowledgeResult())
+            if (existing.imageBased) return@launch onDone(false)
             val draft = BookScanDraft(
                 mode = ExplainStyle.fromStored(row.mode),
                 bookTitle = row.bookTitle,

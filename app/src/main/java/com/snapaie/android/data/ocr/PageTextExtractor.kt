@@ -53,7 +53,20 @@ class PageTextExtractor(
      */
     suspend fun localImagePath(uri: Uri): String? = withContext(Dispatchers.IO) {
         val source = localPathFor(uri) ?: return@withContext null
-        runCatching { downscale(source) }.getOrDefault(source)
+        val result = runCatching { downscale(source) }.getOrDefault(source)
+        if (result != source) deleteTemporaryImage(source)
+        result
+    }
+
+    /** Deletes only page copies created in this app's cache directory. */
+    fun deleteTemporaryImage(path: String) {
+        runCatching {
+            val image = File(path).canonicalFile
+            val cache = context.cacheDir.canonicalFile
+            if (image.parentFile == cache && TEMP_IMAGE_PREFIXES.any(image.name::startsWith)) {
+                image.delete()
+            }
+        }
     }
 
     private fun sourceFor(text: String): TextSource = classify(text)
@@ -110,6 +123,8 @@ class PageTextExtractor(
     }
 
     companion object {
+        private val TEMP_IMAGE_PREFIXES = listOf("page-", "page-read-", "snap-pdf-page-")
+
         /** Long edge kept for the stored page: enough to read body text, small to send. */
         private const val MAX_PAGE_EDGE = 1024
 
