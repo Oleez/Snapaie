@@ -1,6 +1,8 @@
 package com.snapaie.android.domain.condense
 
+import com.snapaie.android.data.ai.ModelSessionManager
 import com.snapaie.android.data.ai.TextGenerator
+import com.snapaie.android.domain.scan.PromptBudget
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -113,5 +115,50 @@ class BeatCondenserTest {
         assertTrue("target words never filled in", prompt.contains("30"))
         assertTrue("sentences never numbered", prompt.contains("0. Gregor Samsa"))
         assertFalse("placeholder left unfilled", prompt.contains("{{"))
+    }
+
+    @Test
+    fun `a passage longer than the window is retold in ordered slices that fit`() = runTest {
+        val fake = Fake({ prompt ->
+            val src = prompt.substringAfter(SOURCE_MARK).substringBefore("\n--- RETRY ---")
+            val name = listOf("Alice", "Bob", "Paris").firstOrNull { src.contains(it) } ?: "Alice"
+            "$name kept walking and the passage continued in the same voice without a skip."
+        })
+        val paragraph = "Alice met Bob in Paris. The rain kept falling on the street.\n\n"
+        val source = paragraph.repeat(160)
+        val beat = BeatCondenser(fake, retellPrompts).condense(
+            source,
+            StoryLedger(),
+            "",
+            budgetWords = 40,
+        ) { }
+
+        assertFalse("the whole passage fell back", beat.usedFallback)
+        assertTrue("expected several model calls, got ${fake.prompts.size}", fake.prompts.size >= 2)
+
+        val slices = fake.prompts.map { it.substringAfter(SOURCE_MARK).substringBefore("\n--- RETRY ---") }
+        assertEquals("slices dropped or reordered the passage", source, slices.joinToString(""))
+        var cursor = 0
+        fake.prompts.forEach { prompt ->
+            val slice = prompt.substringAfter(SOURCE_MARK).substringBefore("\n--- RETRY ---")
+            assertEquals(cursor, source.indexOf(slice, cursor))
+            cursor += slice.length
+            assertTrue(
+                "prompt does not fit the window",
+                PromptBudget.fits(prompt, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS),
+            )
+        }
+    }
+
+    private val retellPrompts = com.snapaie.android.domain.scan.PromptSource { path ->
+        when {
+            path.endsWith("condense.md") ->
+                "Retell in {{TARGET_WORDS}} words.\n{{LEDGER}}\n{{PREVIOUS_TAIL}}\n{{DELIMITER}}\n$SOURCE_MARK{{SOURCE}}"
+            else -> ""
+        }
+    }
+
+    private companion object {
+        const val SOURCE_MARK = "SOURCE>>>\n"
     }
 }

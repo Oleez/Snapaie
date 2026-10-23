@@ -54,6 +54,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.snapaie.android.AppContainer
 import com.snapaie.android.IngestRequest
+import com.snapaie.android.data.model.BookSourceKind
+import com.snapaie.android.entry.IncomingDocument
 import com.snapaie.android.core.design.SnapAieTheme
 import com.snapaie.android.core.design.AccentPalette
 import com.snapaie.android.core.design.ThemeMode
@@ -148,7 +150,8 @@ private fun MainShell(
     onIngestConsumed: () -> Unit,
 ) {
     val viewModel: SnapAieViewModel = viewModel(factory = SnapAieViewModelFactory(container))
-    val application = LocalContext.current.applicationContext as android.app.Application
+    val context = LocalContext.current
+    val application = context.applicationContext as android.app.Application
     val bookViewModel: BookViewModel = viewModel(factory = BookViewModelFactory(application, container))
     val scanTrayViewModel: ScanTrayViewModel =
         viewModel(factory = ScanTrayViewModelFactory(application, container))
@@ -163,18 +166,24 @@ private fun MainShell(
     LaunchedEffect(ingest) {
         if (ingest == null) return@LaunchedEffect
         when {
-            // A book-sized PDF or an EPUB goes to the condense flow; a page-sized one
-            // still goes to the quick scan, which is what sharing a single page means.
-            ingest.uri != null && ingest.looksLikeBook -> {
-                bookViewModel.importDocument(ingest.uri, ingest.kind, ingest.displayName)
+            // A PDF/EPUB is a book import, regardless of its file size. The old size-based
+            // routing sent plenty of normal PDFs into the one-page flow, where they could
+            // never produce the designed whole-book result.
+            ingest.uri != null && (
+                ingest.kind == BookSourceKind.PDF ||
+                    ingest.kind == BookSourceKind.EPUB ||
+                    ingest.isPdf
+                ) -> {
+                val importKind = if (ingest.isPdf && ingest.kind == BookSourceKind.TEXT) {
+                    BookSourceKind.PDF
+                } else {
+                    ingest.kind
+                }
+                bookViewModel.importDocument(ingest.uri, importKind, ingest.displayName)
                 navController.navigate(Routes.Books) { launchSingleTop = true }
             }
             ingest.text != null -> {
                 viewModel.ingestText(ingest.text, title = "Shared text")
-                navController.navigate(Routes.Snap) { launchSingleTop = true }
-            }
-            ingest.uri != null && ingest.isPdf -> {
-                viewModel.ingestPdf(ingest.uri)
                 navController.navigate(Routes.Snap) { launchSingleTop = true }
             }
             ingest.uri != null -> {
@@ -353,6 +362,20 @@ private fun MainShell(
                         ScanHubScreen(
                             viewModel = viewModel,
                             navController = navController,
+                            onImportBook = { uri ->
+                                IncomingDocument.of(
+                                    context,
+                                    uri,
+                                    context.contentResolver.getType(uri),
+                                )?.let { document ->
+                                    bookViewModel.importDocument(
+                                        uri,
+                                        document.kind,
+                                        document.displayName,
+                                    )
+                                    navController.navigate(Routes.Books) { launchSingleTop = true }
+                                }
+                            },
                             unreadNotifications = unreadNotifications,
                             onOpenNotifications = { notificationsOpen = true },
                         )

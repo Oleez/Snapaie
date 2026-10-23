@@ -62,6 +62,7 @@ LiteRT-LM can initialize it on every phone. Model files must use the runtime's p
 `.litertlm` format; other formats such as `.task` are not interchangeable.
 
 The bundled default is Gemma 4 E2B Instruct with `supportsVision: true` and an 8 GB RAM
-recommendation. Snap photos and scanned pages in page-level PDFs are sent directly to
-local vision inference; the app does not run OCR or store a transcript for those inputs.
-Text-layer PDF pages stay text. Whole-book imports use the separate text-first pipeline.
+recommendation. Snap photos and scanned pages in page-level PDFs are recognised locally
+first; their transcript is used whenever it is good enough. Vision inference is reserved
+for handwriting and scans that local OCR cannot read. Text-layer PDF pages stay text, and
+whole-book imports use the separate text-first pipeline.

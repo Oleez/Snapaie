@@ -6,6 +6,8 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.snapaie.android.data.ocr.OcrProcessor
+import com.snapaie.android.data.ocr.PageTextExtractor
+import com.snapaie.android.data.ocr.TextSource
 import com.snapaie.android.data.model.ScanPageInput
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -14,9 +16,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Offline PDF text extraction: PdfRenderer renders each page to a bitmap, then
- * the existing ML Kit OCR reads it. Handles both text-layer and scanned PDFs
- * without a heavyweight PDF parsing library.
+ * Offline PDF text extraction. Text-layer pages retain their source text; scanned pages
+ * are rendered and sent through the same local OCR used by the camera. The image remains
+ * available as a vision fallback only when OCR cannot vouch for its transcript.
  */
 class PdfTextExtractor(
     private val context: Context,
@@ -49,10 +51,17 @@ class PdfTextExtractor(
                                 if (text.length >= MIN_TEXT_LAYER_CHARS) {
                                     add(ScanPageInput(pageNumber = index + 1, text = text))
                                 } else {
+                                    val imagePath = renderPage(renderer, index)
+                                    val recognised = runCatching {
+                                        ocrProcessor.extractText(Uri.fromFile(File(imagePath))).trim()
+                                    }.getOrDefault("")
                                     add(
                                         ScanPageInput(
                                             pageNumber = index + 1,
-                                            imagePath = renderPage(renderer, index),
+                                            text = recognised.takeIf {
+                                                PageTextExtractor.classify(it) == TextSource.RECOGNISER
+                                            }.orEmpty(),
+                                            imagePath = imagePath,
                                         ),
                                     )
                                 }

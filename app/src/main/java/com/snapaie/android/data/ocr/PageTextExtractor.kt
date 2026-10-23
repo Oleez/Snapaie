@@ -21,6 +21,19 @@ enum class TextSource { RECOGNISER, NEEDS_CLOUD, NONE }
 data class PageText(val text: String, val source: TextSource)
 
 /**
+ * A capture ready for the scan flow.
+ *
+ * The image is retained even when OCR succeeds: it is the recovery path for handwriting
+ * and unusually poor captures.  The recognised text is still the primary input for a
+ * printed page, which means a working scan never depends on a multi-gigabyte model
+ * loading successfully just to read ordinary letters.
+ */
+data class PreparedPage(
+    val imagePath: String,
+    val pageText: PageText,
+)
+
+/**
  * Reads the text off a page.
  *
  * The recogniser does this, not the model. It matches printed glyphs natively in
@@ -42,6 +55,18 @@ class PageTextExtractor(
     suspend fun extract(uri: Uri): PageText = withContext(Dispatchers.IO) {
         val recognised = runCatching { ocrProcessor.extractText(uri) }.getOrDefault("").trim()
         PageText(recognised, sourceFor(recognised))
+    }
+
+    /**
+     * Makes a private, reasonably sized image copy and reads its text in the same step.
+     *
+     * OCR runs against the original URI before it is downscaled, so small book type is not
+     * lost merely to make the optional vision-model fallback cheaper.
+     */
+    suspend fun prepare(uri: Uri): PreparedPage? {
+        val pageText = extract(uri)
+        val imagePath = localImagePath(uri) ?: return null
+        return PreparedPage(imagePath = imagePath, pageText = pageText)
     }
 
     /**

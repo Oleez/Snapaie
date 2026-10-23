@@ -49,6 +49,82 @@ class BeatCondenser(
         // of several hundred generated words.
         abridge(sourceText, ledger, budgetWords, onToken)?.let { return it }
 
+        return retell(sourceText, ledger, previousTail, budgetWords, onToken)
+    }
+
+    /**
+     * Retells [sourceText] a window at a time.
+     *
+     * A beat used to be cut with `take` at the context limit, so everything past the first
+     * slice was never sent. Each slice is its own call, in order, and the ledger and the
+     * tail of the previous slice travel forward. A slice the model cannot answer is written
+     * extractively on its own; the others stay model prose.
+     */
+    private suspend fun retell(
+        sourceText: String,
+        ledger: StoryLedger,
+        previousTail: String,
+        budgetWords: Int,
+        onToken: (String) -> Unit,
+    ): CondensedBeat {
+        val slices = sourceSlices(sourceText, ledger, previousTail, budgetWords)
+        if (slices.isEmpty()) {
+            val fallback = extractiveFallback(sourceText, budgetWords)
+            return CondensedBeat(
+                prose = fallback,
+                ledger = ledger,
+                words = countWords(fallback),
+                attempts = 0,
+                usedFallback = true,
+            )
+        }
+
+        var ledgerNow = ledger
+        var tail = previousTail
+        val prose = StringBuilder()
+        var attempts = 0
+        var usedFallback = false
+        var lastRejection = BeatRejection.NONE
+        val totalWords = countWords(sourceText).coerceAtLeast(1)
+        var spentBudget = 0
+
+        slices.forEachIndexed { index, slice ->
+            val share = if (index == slices.lastIndex) {
+                (budgetWords - spentBudget).coerceAtLeast(1)
+            } else {
+                (budgetWords.toLong() * countWords(slice).coerceAtLeast(1) / totalWords)
+                    .toInt()
+                    .coerceAtLeast(1)
+            }
+            spentBudget += share
+            val one = retellSlice(slice, ledgerNow, tail, share, onToken)
+            if (prose.isNotEmpty() && one.prose.isNotBlank()) prose.append("\n\n")
+            prose.append(one.prose)
+            ledgerNow = one.ledger
+            if (one.prose.isNotBlank()) tail = one.prose
+            attempts += one.attempts
+            usedFallback = usedFallback || one.usedFallback
+            lastRejection = one.lastRejection
+        }
+
+        return CondensedBeat(
+            prose = prose.toString(),
+            ledger = ledgerNow,
+            words = countWords(prose.toString()),
+            attempts = attempts,
+            usedFallback = usedFallback,
+            lastRejection = lastRejection,
+        )
+    }
+
+    /** The retry ladder for one slice. The last rung is an extractive shortening of that slice. */
+    private suspend fun retellSlice(
+        sourceText: String,
+        ledger: StoryLedger,
+        previousTail: String,
+        budgetWords: Int,
+        onToken: (String) -> Unit,
+    ): CondensedBeat {
         var attempt = 0
         var lastRejection = BeatRejection.NONE
 
@@ -157,6 +233,26 @@ class BeatCondenser(
             builder.toString().takeIf { it.isNotBlank() }
         }
 
+    /**
+     * Slices sized against the largest prompt we send (a retry), so a later attempt does
+     * not have to cut the slice to make room for the retry note.
+     */
+    private fun sourceSlices(
+        sourceText: String,
+        ledger: StoryLedger,
+        previousTail: String,
+        budgetWords: Int,
+    ): List<String> {
+        if (sourceText.isEmpty()) return emptyList()
+        val template = runCatching { promptLibrary.read("prompts/condense.md") }.getOrDefault("")
+        if (template.isBlank()) return listOf(sourceText)
+        val room = PromptBudget.maxSourceChars(
+            assemblePrompt(template, ledger, previousTail, budgetWords, "", MAX_ATTEMPTS),
+            ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS,
+        )
+        return PassageSlicer.slices(sourceText, room)
+    }
+
     private fun buildPrompt(
         sourceText: String,
         ledger: StoryLedger,
@@ -165,6 +261,28 @@ class BeatCondenser(
         attempt: Int,
     ): String {
         val template = runCatching { promptLibrary.read("prompts/condense.md") }.getOrDefault("")
+        val room = PromptBudget.maxSourceChars(
+            assemblePrompt(template, ledger, previousTail, budgetWords, "", attempt),
+            ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS,
+        )
+        return assemblePrompt(
+            template,
+            ledger,
+            previousTail,
+            budgetWords,
+            sourceText.take(room.coerceAtLeast(0)),
+            attempt,
+        )
+    }
+
+    private fun assemblePrompt(
+        template: String,
+        ledger: StoryLedger,
+        previousTail: String,
+        budgetWords: Int,
+        source: String,
+        attempt: Int,
+    ): String {
         val filled = template
             .replace("{{TARGET_WORDS}}", budgetWords.toString())
             .replace("{{DELIMITER}}", BeatContract.LEDGER_DELIMITER)
@@ -176,21 +294,14 @@ class BeatCondenser(
                 "{{PREVIOUS_TAIL}}",
                 previousTail.takeLast(PREVIOUS_TAIL_CHARS).ifBlank { "(nothing yet)" },
             )
-            .replace(
-                "{{SOURCE}}",
-                sourceText.take(minOf(MAX_SOURCE_CHARS, PromptBudget.maxSourceChars(template, budgetWords * 2))),
-            )
+            .replace("{{SOURCE}}", source)
 
         if (attempt <= 1) return filled
         return buildString {
             appendLine(filled)
             appendLine()
             appendLine("--- RETRY ---")
-            appendLine(
-                "Your previous attempt was rejected. Retell the passage as continuous story " +
-                    "prose in the book's own voice. Do not describe the text, do not summarise " +
-                    "it, do not use headings or bullets, and do not drop any event or name.",
-            )
+            appendLine(RETRY_NOTE)
         }
     }
 
@@ -223,8 +334,10 @@ class BeatCondenser(
          */
         const val MIN_ABRIDGED_RATIO = 0.45f
 
-        const val MAX_SOURCE_CHARS = 9_000
         const val PREVIOUS_TAIL_CHARS = 700
-        const val MIN_FALLBACK_WORDS_PER_PARAGRAPH = 12
+        const val RETRY_NOTE =
+            "Your previous attempt was rejected. Retell the passage as continuous story " +
+                "prose in the book's own voice. Do not describe the text, do not summarise " +
+                "it, do not use headings or bullets, and do not drop any event or name."
     }
 }

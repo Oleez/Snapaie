@@ -278,10 +278,9 @@ data class BookScanDraft(
     /**
      * The photographed page, when there is one.
      *
-     * Gemma 4 reads images, so a snap does not need its text transcribed before it can be
-     * condensed — the model can do both in a single pass. Recognised text is still kept
-     * alongside for search and for comparing against the original, but it is no longer on
-     * the critical path to a result.
+     * A printed page is transcribed locally first and that text is the normal condensation
+     * input. Gemma 4 reads the image only when OCR cannot produce a usable transcript,
+     * such as handwriting or a poor scan.
      */
     val imagePath: String = "",
     val pageInputs: List<ScanPageInput> = emptyList(),

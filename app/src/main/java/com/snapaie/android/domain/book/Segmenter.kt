@@ -40,23 +40,14 @@ data class SourceBeat(
 object Segmenter {
 
     /**
-     * Words of source per beat. Roughly 1,300 tokens, which leaves room for the story
-     * ledger, the previous beat's tail and the generated output inside the few-thousand
-     * token context LiteRT-LM actually runs a 2B model at — the 128K figure in the model
-     * card describes the architecture, not the runtime configuration.
-     */
-    /**
-     * Source words per beat, and therefore per model call.
+     * Source words per beat.
      *
-     * This was 900, set when the context window was smaller. The window holds about 9,200
-     * characters of source for the condense prompt, so 900 words used barely half of it and
-     * bought an extra model call for every beat — and per-call overhead, not prefill, is
-     * what a long book pays over and over.
-     *
-     * 1,400 words is roughly 8,400 characters: most of the window, with room left for the
-     * ledger and the previous tail. It cuts the number of calls in a full book by a third.
+     * The engine is built with a 2,048-token window, and the condense prompt plus the reply
+     * leave room for roughly a thousand characters of source. 180 words sits inside that,
+     * so a normal beat is one model call. A beat that still overruns — a long ledger, a
+     * long previous tail — is walked in slices rather than truncated.
      */
-    const val DEFAULT_BEAT_WORDS = 1_400
+    const val DEFAULT_BEAT_WORDS = 180
 
     /** Below this a trailing fragment is merged back rather than left as its own beat. */
     private const val MIN_TAIL_WORDS = 120

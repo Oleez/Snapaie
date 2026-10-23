@@ -258,6 +258,20 @@ class SnapPipelineTest {
     }
 
     @Test
+    fun `a photographed page with OCR text does not depend on vision`() = runTest {
+        val fake = Fake(
+            onText = { flow { error("text engine unavailable") } },
+            onImage = { flow { error("vision engine unavailable") } },
+        )
+
+        val prose = proseFrom(fake, draft(text = page, image = photo.absolutePath))
+
+        assertEquals("recognised text was unnecessarily sent back to vision", 0, fake.imageCalls)
+        assertTrue("OCR text did not receive the ordinary local fallback", prose.isNotBlank())
+        assertTrue("the fallback did not shorten the recognised page", prose.length < page.length)
+    }
+
+    @Test
     fun `scanned PDF pages are sent to vision one at a time in order`() = runTest {
         val fake = Fake()
         val draft = BookScanDraft(
@@ -271,6 +285,19 @@ class SnapPipelineTest {
         assertEquals("not every page was sent to vision", 2, fake.imageCalls)
         assertEquals("scanned pages went through text generation", 0, fake.textCalls)
         assertEquals("per-page output was not combined", 2, prose.split("sculptor").size - 1)
+    }
+
+    @Test
+    fun `a scanned PDF page with OCR text uses text instead of vision`() = runTest {
+        val fake = Fake()
+        val draft = BookScanDraft(
+            pageInputs = listOf(ScanPageInput(pageNumber = 1, text = page, imagePath = photo.absolutePath)),
+        )
+
+        val prose = proseFrom(fake, draft)
+
+        assertEquals("an OCR-backed PDF page was sent to vision", 0, fake.imageCalls)
+        assertTrue("the recognised PDF page did not produce prose", prose.isNotBlank())
     }
 
     @Test

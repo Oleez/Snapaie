@@ -8,7 +8,7 @@ class PromptLibrary(private val context: Context) : PromptSource, ScanPrompts {
     override fun buildScanPrompt(draft: BookScanDraft): String {
         val guardrails = readAsset("prompts/guardrails.md")
         val orchestrator = readAsset("prompts/orchestrator.md")
-        return buildString {
+        val head = buildString {
             appendLine(guardrails)
             appendLine()
             appendLine(orchestrator)
@@ -18,29 +18,30 @@ class PromptLibrary(private val context: Context) : PromptSource, ScanPrompts {
             if (draft.bookTitle.isNotBlank()) appendLine("Book/source: ${draft.bookTitle}")
             if (draft.context.isNotBlank()) appendLine("User context: ${draft.context}")
             appendLine("OCR/page text:")
-            append(draft.pageText.take(MAX_SOURCE_CHARS))
         }
+        return head + draft.pageText.take(PromptBudget.maxSourceChars(head).coerceAtLeast(0))
     }
 
-    override fun buildRepairPrompt(draft: BookScanDraft, previousOutput: String): String = buildString {
-        appendLine(readAsset("prompts/repair_retry.md"))
-        appendLine()
-        appendLine("Source text:")
-        appendLine(draft.pageText.take(REPAIR_SOURCE_CHARS))
-        appendLine()
-        appendLine("Your previous unparseable answer (for reference, fix its format):")
-        append(previousOutput.take(REPAIR_PREVIOUS_CHARS))
+    override fun buildRepairPrompt(draft: BookScanDraft, previousOutput: String): String {
+        val head = buildString {
+            appendLine(readAsset("prompts/repair_retry.md"))
+            appendLine()
+            appendLine("Source text:")
+        }
+        val middle = buildString {
+            appendLine()
+            appendLine("Your previous unparseable answer (for reference, fix its format):")
+        }
+        val room = PromptBudget.maxSourceChars(head + middle).coerceAtLeast(0)
+        val sourceRoom = room / 2
+        return head +
+            draft.pageText.take(sourceRoom) +
+            middle +
+            previousOutput.take(room - sourceRoom)
     }
 
     override fun read(path: String): String = readAsset(path)
 
     fun readAsset(path: String): String =
         context.assets.open(path).bufferedReader().use { it.readText() }
-
-    private companion object {
-        // Budgets tuned for a 2-4B on-device model.
-        const val MAX_SOURCE_CHARS = 6_000
-        const val REPAIR_SOURCE_CHARS = 3_000
-        const val REPAIR_PREVIOUS_CHARS = 2_000
-    }
 }

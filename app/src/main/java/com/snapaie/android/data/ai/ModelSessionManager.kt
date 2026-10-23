@@ -66,6 +66,8 @@ class ModelSessionManager(
     private val mutex = Mutex()
     private var engine: Engine? = null
     private var loadedKey: String? = null
+    /** True when [engine] was initialized with the vision encoder, which costs extra RAM. */
+    private var loadedVision: Boolean = false
     private var idleUnloadJob: Job? = null
 
     /** Non-zero while a long-running job (e.g. a book condense) needs the engine resident. */
@@ -127,8 +129,9 @@ class ModelSessionManager(
     fun stream(prompt: String): Flow<String> = stream(prompt, null, DEFAULT_MAX_OUTPUT_TOKENS)
 
     /**
-     * [imagePath] is accepted and ignored: the model is text-only, and a caller handing one
-     * over has made a mistake worth failing quietly rather than crashing the engine over.
+     * Text calls load the weights without the vision encoder. An image call reloads once
+     * with vision, and only when enough RAM is free — a printed page that OCR already
+     * read never pays for that encoder.
      */
     private fun stream(
         prompt: String,
@@ -144,7 +147,7 @@ class ModelSessionManager(
                     check(visionAllowed) { "The installed offline model cannot read images." }
                     check(java.io.File(imagePath).isFile) { "The page image is unavailable." }
                 }
-                val active = ensureEngine()
+                val active = ensureEngine(withVision = imagePath != null)
                 // Two things decide how long a reply takes: how much context has to be
                 // read, and how many tokens come back. The second was unbounded, so a
                 // model that failed to stop ran until the caller's timeout — minutes of
@@ -280,12 +283,19 @@ class ModelSessionManager(
         else -> "Offline AI could not load on this device. See Settings > Problem report for details."
     }
 
-    private suspend fun ensureEngine(): Engine {
+    private suspend fun ensureEngine(withVision: Boolean): Engine {
         val record = modelRepository.activeRecord() ?: throw ModelNotInstalledException()
+        val wantsVision = withVision && record.supportsVision
+        if (withVision && !record.supportsVision) {
+            throw IllegalStateException("The installed offline model cannot read images.")
+        }
         val key = "${record.modelId}@${record.version}"
         val current = engine
-        if (current != null && loadedKey == key) return current
+        if (current != null && loadedKey == key && loadedVision == wantsVision) return current
 
+        // Check before closing. A text engine that is already resident should survive a
+        // vision call that the device cannot afford.
+        requireFreeRam(wantsVision)
         closeEngine()
         val label = "${record.modelId} ${record.version}"
         _state.value = ModelSessionState.Loading(label)
@@ -308,8 +318,8 @@ class ModelSessionManager(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = backend.toRuntimeBackend(),
-                            visionBackend = if (record.supportsVision) backend.toRuntimeBackend() else null,
-                            maxNumImages = if (record.supportsVision) MAX_NUM_IMAGES else 0,
+                            visionBackend = if (wantsVision) backend.toRuntimeBackend() else null,
+                            maxNumImages = if (wantsVision) MAX_NUM_IMAGES else 0,
                             maxNumTokens = MAX_CONTEXT_TOKENS,
                             cacheDir = context.cacheDir.absolutePath,
                         ),
@@ -326,6 +336,7 @@ class ModelSessionManager(
             if (created != null) {
                 engine = created
                 loadedKey = key
+                loadedVision = wantsVision
                 _state.value = ModelSessionState.Ready(label)
                 if (record.loadedBackend != backend.wireName) {
                     modelRepository.onBackendResolved(record.modelId, record.version, backend)
@@ -383,10 +394,35 @@ class ModelSessionManager(
         }
     }
 
+    /**
+     * Refuses to construct the native engine when the device is already short of RAM.
+     *
+     * Initializing anyway is what kills the process: the runtime allocates the weights
+     * and the whole context before any Kotlin catch can run, and a process death never
+     * reaches the "close other apps" message.
+     */
+    private fun requireFreeRam(withVision: Boolean) {
+        val needed = if (withVision) MIN_FREE_RAM_VISION_BYTES else MIN_FREE_RAM_TEXT_BYTES
+        val available = availableRamBytes()
+        if (available >= needed) return
+        val error = IllegalStateException(
+            "Not enough free memory to load offline AI. Close other apps and try again.",
+        )
+        _state.value = ModelSessionState.Error(friendly(error))
+        throw error
+    }
+
+    private fun availableRamBytes(): Long {
+        val memoryInfo = ActivityManager.MemoryInfo()
+        context.getSystemService(ActivityManager::class.java).getMemoryInfo(memoryInfo)
+        return memoryInfo.availMem
+    }
+
     private fun closeEngine() {
         runCatching { engine?.close() }
         engine = null
         loadedKey = null
+        loadedVision = false
         _state.value = ModelSessionState.Unloaded
     }
 
@@ -399,20 +435,21 @@ class ModelSessionManager(
         /**
          * Context window the engine is built with, counting the prompt and the reply.
          *
-         * This was 2,048, with a comment claiming every prompt fitted well inside it. It
-         * did not. The pipeline sends up to 9,000 characters of source — about 2,250
-         * tokens on its own — plus a template, a story ledger and the tail of the previous
-         * passage, and then asks for up to 560 tokens back. A full-size passage therefore
-         * needed roughly 3,000 tokens against a 2,048 window, so it overflowed every time.
-         *
-         * Overflow does not announce itself. The engine fails or truncates, the result is
-         * rejected as unusable, and the pipeline quietly falls back to its local heuristic
-         * — which is why the app appeared to work while never once producing a passage the
-         * model had actually written. [PromptBudget] now derives the source cap from this
-         * number so the two cannot drift apart again.
+         * LiteRT allocates this whole window up front, so a larger number is a larger
+         * resident set — and that resident set is what gets the process killed on an 8 GB
+         * phone that is already running other apps. 2,048 is the size we can afford.
+         * Passages longer than the window are walked in slices; [PromptBudget] derives
+         * each slice from this number so a prompt cannot overflow it and silently fall
+         * back to a local shortening.
          */
-        const val MAX_CONTEXT_TOKENS = 4_096
+        const val MAX_CONTEXT_TOKENS = 2_048
         const val MAX_NUM_IMAGES = 1
+
+        /** Free RAM required before a text-only load. Below this we never touch native init. */
+        const val MIN_FREE_RAM_TEXT_BYTES = 1_600_000_000L
+
+        /** Free RAM required before loading the vision encoder on top of the text weights. */
+        const val MIN_FREE_RAM_VISION_BYTES = 2_400_000_000L
 
         /** Roughly 400 words, which is more than any single answer here needs. */
         const val DEFAULT_MAX_OUTPUT_TOKENS = 560

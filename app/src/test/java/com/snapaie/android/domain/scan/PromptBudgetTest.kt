@@ -1,6 +1,7 @@
 package com.snapaie.android.domain.scan
 
 import com.snapaie.android.data.ai.ModelSessionManager
+import com.snapaie.android.domain.book.Segmenter
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -9,9 +10,9 @@ import java.io.File
  * The largest prompt the app can build must fit the window the engine is built with.
  *
  * This is the test that was missing when it mattered. The engine was configured with a
- * 2,048-token context while the pipeline sent 9,000 characters of source plus a template
- * and asked for 560 tokens back — about 3,000 tokens into a 2,048 window. Nothing
- * connected the two numbers, so nothing noticed.
+ * context window the pipeline did not share, so a full passage overflowed, the reply was
+ * thrown away, and the app shortened the page locally. Nothing connected the two numbers,
+ * so nothing noticed.
  *
  * The failure was invisible from the outside: an overflowing prompt does not surface as an
  * error the user sees, it surfaces as the model producing nothing usable and the pipeline
@@ -76,23 +77,24 @@ class PromptBudgetTest {
     }
 
     @Test
-    fun `the source cap the pipeline uses actually fits`() {
-        // The pipeline's own ceiling, checked against the window rather than trusted.
+    fun `a default-sized beat fits one condense call`() {
         val template = template("condense.md")
         val room = PromptBudget.maxSourceChars(template)
+        val beatChars = Segmenter.DEFAULT_BEAT_WORDS * CHARS_PER_WORD
         assertTrue(
-            "the pipeline would send up to 9,000 characters but only $room fit",
-            room >= PIPELINE_SOURCE_CAP || room > 0,
+            "a beat of ${Segmenter.DEFAULT_BEAT_WORDS} words is about $beatChars characters " +
+                "but the condense prompt only leaves $room",
+            beatChars <= room,
         )
-        val prompt = template.replace("{{SOURCE}}", "x".repeat(minOf(room, PIPELINE_SOURCE_CAP)))
-        assertFits("the pipeline's largest prompt", prompt, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
+        val prompt = template.replace("{{SOURCE}}", "x".repeat(beatChars))
+        assertFits("a default beat", prompt, ModelSessionManager.DEFAULT_MAX_OUTPUT_TOKENS)
     }
 
     private companion object {
         /** Below this a passage is too small to be worth a round trip to the model. */
-        const val MIN_USABLE_SOURCE_CHARS = 2_000
+        const val MIN_USABLE_SOURCE_CHARS = 1_500
 
-        /** WorkflowEngine.MAX_PROSE_SOURCE_CHARS and BeatCondenser.MAX_SOURCE_CHARS. */
-        const val PIPELINE_SOURCE_CAP = 9_000
+        /** Pessimistic characters per English word, including the trailing space. */
+        const val CHARS_PER_WORD = 6
     }
 }

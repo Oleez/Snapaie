@@ -94,6 +94,7 @@ import com.snapaie.android.core.design.components.ScreenHeader
 fun ScanHubScreen(
     viewModel: SnapAieViewModel,
     navController: NavHostController,
+    onImportBook: (android.net.Uri) -> Unit = {},
     unreadNotifications: Int = 0,
     onOpenNotifications: () -> Unit = {},
 ) {
@@ -103,8 +104,8 @@ fun ScanHubScreen(
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) viewModel.prepareImage(uri)
     }
-    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) viewModel.ingestPdf(uri)
+    val bookPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onImportBook(uri)
     }
 
     LazyColumn(
@@ -183,8 +184,12 @@ fun ScanHubScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Image")
                         }
-                        OutlinedButton(onClick = { pdfPicker.launch("application/pdf") }) {
-                            Text("PDF")
+                        OutlinedButton(
+                            onClick = {
+                                bookPicker.launch(arrayOf("application/pdf", "application/epub+zip"))
+                            },
+                        ) {
+                            Text("Book file")
                         }
                     }
                     if (state.isImagePreparing) {
@@ -196,14 +201,16 @@ fun ScanHubScreen(
                     state.ocrError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    when {
-                        state.draft.imagePath.isNotBlank() -> Text(
-                            "Image ready. Local AI reads it directly; no text transcript is created.",
+                    state.captureMessage?.let { message ->
+                        Text(
+                            message,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        state.draft.pageInputs.any { it.imagePath.isNotBlank() } -> Text(
-                            "PDF pages ready. Scanned pages go directly to local AI.",
+                    }
+                    if (state.draft.pageInputs.isNotEmpty()) {
+                        Text(
+                            "PDF pages are ready. Printed text is extracted locally; only unreadable scans need vision AI.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -228,7 +235,11 @@ fun ScanHubScreen(
                             navController.navigate(Routes.ScanRun)
                             viewModel.runWorkflow()
                         },
-                        enabled = (state.draft.pageText.isNotBlank() || state.draft.imagePath.isNotBlank()) &&
+                        enabled = (
+                            state.draft.pageText.isNotBlank() ||
+                                state.draft.imagePath.isNotBlank() ||
+                                state.draft.pageInputs.isNotEmpty()
+                            ) &&
                             !state.isRunning && !state.isImagePreparing,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -274,7 +285,13 @@ fun CompressionRunScreen(viewModel: SnapAieViewModel, navController: NavHostCont
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Condensing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            ScreenHeader(
+                title = "Condensing",
+                onBack = {
+                    if (state.isRunning) viewModel.cancelRun()
+                    navController.popBackStack()
+                },
+            )
         }
         state.ocrError?.let { message ->
             item {
@@ -327,18 +344,34 @@ fun CompressionRunScreen(viewModel: SnapAieViewModel, navController: NavHostCont
         }
         item {
             AnimatedVisibility(visible = state.result != null) {
-                Button(
-                    onClick = {
-                        val id = state.lastSavedScanId
-                        if (id != null) {
-                            navController.navigate(Routes.scanDetail(id)) {
-                                popUpTo(Routes.Snap)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val id = state.lastSavedScanId
+                            if (id != null) {
+                                navController.navigate(Routes.scanDetail(id)) {
+                                    popUpTo(Routes.Snap)
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Open clarity result")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Open clarity result")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.startNewCapture()
+                            navController.navigate(Routes.Camera) {
+                                popUpTo(Routes.Snap) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Filled.CameraAlt, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Scan another page")
+                    }
                 }
             }
         }
@@ -616,7 +649,7 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
         item {
             if (current.result.imageBased) {
                 Text(
-                    "The original image is not retained. Select it again to run another visual scan.",
+                    "The original image is not retained after this result.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -638,6 +671,22 @@ fun ScanDetailScreen(viewModel: SnapAieViewModel, navController: NavHostControll
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+        item {
+            OutlinedButton(
+                onClick = {
+                    viewModel.startNewCapture()
+                    navController.navigate(Routes.Camera) {
+                        popUpTo(Routes.Snap) { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.CameraAlt, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Scan another page")
             }
         }
         item { Spacer(Modifier.height(12.dp)) }

@@ -15,6 +15,7 @@ import com.snapaie.android.data.model.ExplainStyle
 import com.snapaie.android.data.model.KnowledgeResult
 import com.snapaie.android.data.model.PhaseUpdate
 import com.snapaie.android.data.model.ReaderStats
+import com.snapaie.android.data.ocr.TextSource
 import com.snapaie.android.data.preferences.UserSettings
 import com.snapaie.android.domain.ReadingStreak
 import com.snapaie.android.domain.notifications.InAppNotification
@@ -44,6 +45,8 @@ data class ScanUiState(
     val lastSavedScanId: Long? = null,
     val isRunning: Boolean = false,
     val isImagePreparing: Boolean = false,
+    /** Informational OCR status for a newly captured page; errors stay in [ocrError]. */
+    val captureMessage: String? = null,
     val ocrError: String? = null,
 )
 
@@ -128,7 +131,10 @@ class SnapAieViewModel(
             it.copy(
                 draft = it.draft.copy(
                     pageText = pageText,
-                    imagePath = if (pageText.isNotBlank()) "" else it.draft.imagePath,
+                    // Keep the photo while its extracted text is being corrected. The text
+                    // remains the primary input, but the image is still there if the text is
+                    // cleared or turns out to be incomplete.
+                    imagePath = it.draft.imagePath,
                     pageInputs = if (pageText.isNotBlank()) emptyList() else it.draft.pageInputs,
                 ),
             )
@@ -162,22 +168,36 @@ class SnapAieViewModel(
             _uiState.update {
                 it.copy(
                     isImagePreparing = true,
+                    captureMessage = null,
                     ocrError = null,
                     draft = it.draft.copy(pageText = "", imagePath = "", pageInputs = emptyList()),
                 )
             }
             runCatching {
-                container.pageTextExtractor.localImagePath(uri)
+                container.pageTextExtractor.prepare(uri)
                     ?: error("That image could not be opened. Select it again and retry.")
             }
-                .onSuccess { imagePath ->
+                .onSuccess { prepared ->
+                    // Printed text is the reliable, fast input. The image stays attached only
+                    // as a fallback for handwriting or OCR that did not yield a usable page.
+                    val recognised = prepared.pageText.takeIf {
+                        it.source == TextSource.RECOGNISER
+                    }?.text.orEmpty()
                     _uiState.update {
                         it.copy(
                             isImagePreparing = false,
                             draft = it.draft.copy(
-                                pageText = "",
-                                imagePath = imagePath,
+                                pageText = recognised,
+                                imagePath = prepared.imagePath,
                             ),
+                            captureMessage = when (prepared.pageText.source) {
+                                TextSource.RECOGNISER ->
+                                    "Text extracted on your phone. Review it or condense it now."
+                                TextSource.NEEDS_CLOUD ->
+                                    "The text needs a closer visual read. Offline AI will use the image when you condense."
+                                TextSource.NONE ->
+                                    "No printed text was detected. Offline AI will use the image when you condense."
+                            },
                         )
                     }
                 }
@@ -245,7 +265,14 @@ class SnapAieViewModel(
         job?.cancel()
         val draft = _uiState.value.draft
         _uiState.update {
-            it.copy(phases = emptyList(), streamText = "", result = null, lastSavedScanId = null, isRunning = true)
+            it.copy(
+                phases = emptyList(),
+                streamText = "",
+                result = null,
+                lastSavedScanId = null,
+                isRunning = true,
+                ocrError = null,
+            )
         }
         job = viewModelScope.launch {
             // An inference failure here used to escape the collector, and an exception
@@ -259,10 +286,8 @@ class SnapAieViewModel(
                     is WorkflowEvent.Phase -> _uiState.update { it.copy(phases = it.phases + event.update) }
                     is WorkflowEvent.Token -> _uiState.update { it.copy(streamText = it.streamText + event.value) }
                     is WorkflowEvent.Result -> {
-                        val hasImageInput = draft.imagePath.isNotBlank() ||
-                            draft.pageInputs.any { it.imagePath.isNotBlank() }
-                        val wordsIn = if (hasImageInput) 0 else ScanMetrics.wordCount(draft.pageText)
-                        val wordsOut = if (hasImageInput) 0 else {
+                        val wordsIn = if (event.result.imageBased) 0 else ScanMetrics.wordCount(draft.pageText)
+                        val wordsOut = if (event.result.imageBased) 0 else {
                             ScanMetrics.wordCount(event.result.conciseMeaning) +
                                 ScanMetrics.wordCount(event.result.simplifiedExplanation)
                         }
@@ -307,7 +332,10 @@ class SnapAieViewModel(
                             hasImageInput && !container.sessionManager.visionAllowed ->
                                 "The installed model cannot read images. Install a vision-capable model."
                             hasImageInput ->
-                                "Offline AI could not read this image. Try another photo."
+                                (container.sessionManager.state.value as?
+                                    com.snapaie.android.data.ai.ModelSessionState.Error
+                                    )?.message?.let { "Offline AI: $it" }
+                                    ?: "Offline AI could not read this image. Try another photo."
                             else -> "That did not finish. Try again."
                         },
                     )
@@ -395,6 +423,20 @@ class SnapAieViewModel(
     fun cancelRun() {
         job?.cancel()
         _uiState.update { it.copy(isRunning = false) }
+    }
+
+    /** Clears the finished capture so returning to the camera always begins a fresh scan. */
+    fun startNewCapture() {
+        job?.cancel()
+        val staleImages = _uiState.value.draft.let { draft ->
+            (draft.pageInputs.map { it.imagePath } + draft.imagePath)
+                .filter(String::isNotBlank)
+                .distinct()
+        }
+        staleImages.forEach(container.pageTextExtractor::deleteTemporaryImage)
+        _uiState.update { previous ->
+            ScanUiState(draft = BookScanDraft(mode = previous.draft.mode))
+        }
     }
 
     fun deleteModelWeights() {

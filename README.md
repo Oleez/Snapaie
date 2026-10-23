@@ -102,11 +102,11 @@ hole in a story is not. Those passages are marked in the reader.
 
 ## The model
 
-The Snap/photo workflow sends the page image directly to the local vision-language model.
-It does not run OCR first, create a transcript, or send the image to the cloud. Scanned
-pages in a page-level PDF are handled the same way; searchable PDF pages keep their native
-text. Whole-book imports remain text-first so the book abridgement pipeline can preserve
-the source sentences and order.
+The Snap/photo workflow reads printed text locally first and shows the transcript for review.
+The original image is retained only as a fallback for handwriting or a page OCR cannot read;
+that fallback goes to the local vision-language model, never the cloud. Scanned PDF pages
+follow the same OCR-first rule, while searchable PDFs retain their native text. Whole-book
+imports remain text-first so the book abridgement pipeline can preserve source order.
 
 Gemma 4 E2B Instruct, Apache-2.0, in LiteRT-LM's `.litertlm` format. The CPU artifact is
 about 2.59 GB; compatible GPU devices can download a smaller backend-specific artifact.
@@ -136,9 +136,9 @@ proven model exists to fall back to.
 - **A full-length book takes hours.** The UI says so before you start, runs the job as
   resumable foreground work, pauses when the device gets too hot, and lets you read what is
   finished. It does not make it fast.
-- **Whole-book scanned PDFs still use text extraction.** Snap's single-page photo and
-     scanned-PDF workflows use local vision directly, but book imports keep their separate
-     text-first pipeline. Text-native PDFs and EPUBs retain their exact source text.
+- **Whole-book scanned PDFs use local OCR.** Pages with a text layer retain it exactly;
+  printed scans are recognised locally before being condensed. A page OCR cannot read may
+  need the downloaded vision model.
 - **PDF export uses the standard PDF fonts**, which cover Western European text. Non-Latin
   scripts are not yet supported in PDF output; EPUB and Markdown have no such limit.
 

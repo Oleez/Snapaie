@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,8 +39,8 @@ import com.snapaie.android.core.design.LiquidGlassSurface
 import com.snapaie.android.core.design.components.pressableScale
 import com.snapaie.android.data.local.BookEntity
 import com.snapaie.android.data.model.BookImportState
-import com.snapaie.android.data.model.BookSourceKind
 import com.snapaie.android.data.preferences.UserSettings
+import com.snapaie.android.entry.IncomingDocument
 import com.snapaie.android.domain.share.BookSharing
 import com.snapaie.android.ui.model.ModelSetupCard
 
@@ -61,6 +62,7 @@ fun BooksScreen(
     val importState by viewModel.importState.collectAsStateWithLifecycle()
     val modelState by viewModel.modelState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle(initialValue = UserSettings())
+    val context = LocalContext.current
 
     // Resolve what there is to download so the card can name a real size.
     LaunchedEffect(Unit) { viewModel.checkForModel() }
@@ -69,9 +71,11 @@ fun BooksScreen(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val name = uri.lastPathSegment?.substringAfterLast('/').orEmpty()
-        val kind = if (name.endsWith(".epub", ignoreCase = true)) BookSourceKind.EPUB else BookSourceKind.PDF
-        viewModel.importDocument(uri, kind, name)
+        // Providers frequently hide the filename in the URI. Resolve the display name and
+        // MIME type through ContentResolver so EPUBs are not accidentally imported as PDFs.
+        IncomingDocument.of(context, uri, context.contentResolver.getType(uri))?.let { document ->
+            viewModel.importDocument(uri, document.kind, document.displayName)
+        }
     }
 
     LazyColumn(

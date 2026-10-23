@@ -35,7 +35,10 @@ class WorkflowEngine(
     private val parser = StructuredOutputParser()
 
     fun run(draft: BookScanDraft): Flow<WorkflowEvent> = flow {
-        val hasImageInput = draft.imagePath.isNotBlank() || draft.pageInputs.any { it.imagePath.isNotBlank() }
+        // A camera capture can contain both an image and an OCR transcript.  Treat the
+        // transcript as the primary input when it is usable; vision is for the genuinely
+        // unreadable page, not a prerequisite for every photograph.
+        val hasImageInput = needsVision(draft)
         val hasPageInputs = draft.pageInputs.isNotEmpty()
         emit(
             WorkflowEvent.Phase(
@@ -285,7 +288,7 @@ class WorkflowEngine(
         sharedDeadline: Deadline? = null,
     ): ProseAttempt {
         val deadline = sharedDeadline ?: startDeadline(SNAP_BUDGET_MS)
-        val hasImage = draft.imagePath.isNotBlank()
+        val hasImage = draft.imagePath.isNotBlank() && draft.pageText.isBlank()
         if (hasImage && !sessionManager.isModelInstalled()) {
             error("Download offline AI to read this page image. No text-recognition fallback was used.")
         }
@@ -294,10 +297,12 @@ class WorkflowEngine(
         }
 
         if (draft.pageInputs.isNotEmpty()) {
-            val hasScannedPages = draft.pageInputs.any { it.imagePath.isNotBlank() }
-            if (hasScannedPages) {
+            val pagesNeedingVision = draft.pageInputs.filter {
+                it.imagePath.isNotBlank() && it.text.isBlank()
+            }
+            if (pagesNeedingVision.isNotEmpty()) {
                 check(sessionManager.isModelInstalled()) {
-                    "Download offline AI to read scanned PDF pages. No OCR fallback was used."
+                    "Download offline AI to read the scanned PDF pages that could not be recognised."
                 }
                 check(sessionManager.visionAllowed) {
                     "The installed offline model cannot read scanned PDF pages. Install a vision-capable model."
@@ -307,7 +312,9 @@ class WorkflowEngine(
             for (page in draft.pageInputs) {
                 val pageDraft = draft.copy(
                     pageText = page.text,
-                    imagePath = page.imagePath,
+                    // Do not hand a recognised page back to vision. This is what made a
+                    // normal printed photo fail whenever the vision runtime was unavailable.
+                    imagePath = page.imagePath.takeIf { page.text.isBlank() }.orEmpty(),
                     pageInputs = emptyList(),
                 )
                 val attempt = try {
@@ -321,9 +328,9 @@ class WorkflowEngine(
                 check(attempt.prose.isNotBlank()) {
                     "Offline AI could not process PDF page ${page.pageNumber}. No OCR fallback was used."
                 }
-                if (hasScannedPages) {
+                if (page in pagesNeedingVision) {
                     check(attempt.producedBy == ProducedBy.OFFLINE_AI) {
-                        "Offline AI could not process PDF page ${page.pageNumber}. No local fallback was used."
+                        "Offline AI could not process PDF page ${page.pageNumber}. Try a clearer scan."
                     }
                 }
                 attempts += attempt
@@ -576,16 +583,20 @@ class WorkflowEngine(
         result.copy(
             estimatedTimeSavedMinutes = if (
                 draft.pageText.isBlank() ||
-                draft.imagePath.isNotBlank() ||
-                draft.pageInputs.any { it.imagePath.isNotBlank() }
+                needsVision(draft)
             ) {
                 0
             } else {
                 ScanMetrics.minutesSavedForResult(draft.pageText, result)
             },
             styleUsed = result.styleUsed.ifBlank { draft.mode.name },
-            imageBased = draft.imagePath.isNotBlank() || draft.pageInputs.any { it.imagePath.isNotBlank() },
+            imageBased = needsVision(draft),
         )
+
+    /** True only when a page has no usable transcript and must be sent to vision. */
+    private fun needsVision(draft: BookScanDraft): Boolean =
+        (draft.imagePath.isNotBlank() && draft.pageText.isBlank()) ||
+            draft.pageInputs.any { it.imagePath.isNotBlank() && it.text.isBlank() }
 
     private companion object {
         const val INFERENCE_TIMEOUT_MS = 60_000L
